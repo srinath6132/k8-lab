@@ -2,7 +2,7 @@ pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds() }
   parameters {
-    string(name: 'DOCKERHUB_REPO', defaultValue: 'your-dockerhub-username/devops-demo', description: 'Docker Hub repository')
+    string(name: 'DOCKERHUB_REPO', defaultValue: 'srinathalgota/k8-lab', description: 'Docker Hub repository')
     string(name: 'VM2_HOST', defaultValue: '192.168.56.102', description: 'VM2 host-only IP')
     string(name: 'VM2_USER', defaultValue: 'deploy', description: 'SSH deployment user on VM2')
   }
