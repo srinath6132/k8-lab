@@ -1,13 +1,15 @@
 replicaCount: 2
+
 image:
-  repository: your-dockerhub-username/devops-demo
+  repository: srinathalgota/k8-lab
   tag: latest
   pullPolicy: IfNotPresent
+
 service:
-  type: NodePort
+  type: LoadBalancer
   port: 80
   targetPort: 8080
-  nodePort: 30080
+
 resources:
   requests:
     cpu: 100m
