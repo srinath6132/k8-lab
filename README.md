@@ -227,7 +227,47 @@ kubectl -n shop port-forward svc/shop-auth 8082:8080
 kubectl -n shop port-forward svc/shop-product 8083:8080
 kubectl -n shop port-forward svc/shop-cart 8084:8080
 ```
-Use the same curl examples as above. The existing `app/` demo, `helm/devops-demo` chart, and Jenkins pipeline remain unchanged.
+Use the same API examples as above. The existing `app/` demo and `helm/devops-demo` chart remain available.
+
+## 9. Jenkins CI/CD for individual services and full releases
+
+The existing root `Jenkinsfile` continues to build and deploy only the legacy `app/` demo. The microservices use separate pipelines so service teams can release one service without rebuilding the others, while the full-release pipeline verifies and deploys all four together.
+
+Create five Jenkins Multibranch Pipeline jobs for this repository. Install/configure the GitHub Branch Source integration, enable push-event indexing with a GitHub webhook, and set the branch source to discover the branches you want to build. Each job can use its own Script Path:
+
+| Job | Script Path | Behavior |
+| --- | --- | --- |
+| User service | `Jenkinsfile.user-service` | Test, build, scan, and publish only user-service; optionally deploy it manually |
+| Auth service | `Jenkinsfile.auth-service` | Same flow for auth-service |
+| Product service | `Jenkinsfile.product-service` | Same flow for product-service |
+| Cart service | `Jenkinsfile.cart-service` | Same flow for cart-service |
+| Full release | `Jenkinsfile.microservices` | Test all modules, build/scan/push all four images, and roll out the complete chart |
+
+These pipelines use the existing `dockerhub-creds` and `vm2-ssh-key` credentials. VM1 needs Java 17, Maven, Docker, Trivy, and the Jenkins SSH Agent/Credentials Binding plugins. Configure VM2's verified SSH host key in Jenkins `known_hosts`; do not disable host-key checking. The job parameters default to `DOCKERHUB_IMAGE_BASE=srinathalgota/k8-lab`, `VM2_HOST=192.168.56.102`, `VM2_USER=deploy`, and `DEPLOY_BRANCH=main`. Change `DEPLOY_BRANCH` to `master` if that is the protected release branch in your Jenkins job. Feature branches run build/test/scan/push but do not deploy. The **Full release** job auto-deploys on the protected branch; an individual service job only deploys when you manually enable its `DEPLOY_TO_MINIKUBE` parameter, preventing four independent jobs from racing to publish a mixed release.
+
+### Prepare VM2 once
+
+Run these commands as the VM2 account Jenkins will SSH into. That same account must be able to run `minikube status`, `kubectl`, and `helm` without sudo:
+```bash
+minikube status
+helm version --short
+kubectl create namespace shop --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n shop create secret generic shop-jwt \
+  --from-literal=jwt-secret="$(openssl rand -hex 32)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+Keep the JWT secret in the Kubernetes Secret; do not commit it or put it in the Jenkinsfile. If the Docker Hub repositories are private, create a Kubernetes Docker registry pull secret in `shop` and set the Jenkins parameter `IMAGE_PULL_SECRET_NAME` to that Secret's name.
+
+The pipelines package the Helm chart from the exact checked-out commit and copy it, with the appropriate deploy script, to VM2 over SSH. They serialize Helm changes with a VM2 lock, use unique image tags containing the 12-character Git SHA/job/build number, and use Helm `--wait --atomic` for rollback on a failed rollout. Run the **Full release** job once to bootstrap the `shop` release; individual service jobs require that release to exist and then update only their own image. Jenkins never needs VM2's kubeconfig.
+
+Once deployed, keep one command per terminal on VM2 to access the APIs from the host-only network (replace the IP if VM2 uses a different host-only address):
+```bash
+kubectl -n shop port-forward --address 192.168.56.102 svc/shop-user 8081:8080
+kubectl -n shop port-forward --address 192.168.56.102 svc/shop-auth 8082:8080
+kubectl -n shop port-forward --address 192.168.56.102 svc/shop-product 8083:8080
+kubectl -n shop port-forward --address 192.168.56.102 svc/shop-cart 8084:8080
+```
+This is a corporate-style learning workflow, not production HA: Minikube is single-node and the demo services keep application data in memory. Use persistent databases, TLS/Ingress, managed secrets, backups, and a production Kubernetes cluster before handling real users or orders.
 
 ## Important notes
 - This is a learning lab, not a production HA architecture.

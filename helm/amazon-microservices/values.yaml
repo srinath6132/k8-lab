@@ -1,6 +1,8 @@
 replicaCount: 1
 
-jwtSecret: local-development-secret-with-at-least-32-bytes
+jwtSecret: ""
+jwtSecretName: ""
+imagePullSecretName: ""
 
 services:
   user:

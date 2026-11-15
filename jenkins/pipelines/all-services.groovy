@@ -1,0 +1,132 @@
+def configureJob() {
+    properties([
+        buildDiscarder(logRotator(numToKeepStr: '20')),
+        disableConcurrentBuilds(),
+        parameters([
+            string(name: 'DOCKERHUB_IMAGE_BASE', defaultValue: 'srinathalgota/k8-lab',
+                    description: 'Docker Hub prefix; service suffixes are appended'),
+            string(name: 'VM2_HOST', defaultValue: '192.168.56.102', description: 'Minikube VM host-only address'),
+            string(name: 'VM2_USER', defaultValue: 'deploy', description: 'SSH deployment user on VM2'),
+            string(name: 'DEPLOY_BRANCH', defaultValue: 'main', description: 'Protected branch allowed to deploy'),
+            string(name: 'IMAGE_PULL_SECRET_NAME', defaultValue: '', description: 'Optional Kubernetes Docker Hub pull secret'),
+            booleanParam(name: 'DEPLOY_TO_MINIKUBE', defaultValue: true, description: 'Deploy after a successful build on DEPLOY_BRANCH')
+        ])
+    ])
+}
+
+def executeAllServices() {
+    configureJob()
+    def services = ['user-service', 'auth-service', 'product-service', 'cart-service']
+    def imageBase = params.DOCKERHUB_IMAGE_BASE ?: 'srinathalgota/k8-lab'
+    def vmHost = params.VM2_HOST ?: '192.168.56.102'
+    def vmUser = params.VM2_USER ?: 'deploy'
+    def deployBranch = params.DEPLOY_BRANCH ?: 'main'
+    def pullSecret = params.IMAGE_PULL_SECRET_NAME ?: ''
+    def deployEnabled = params.DEPLOY_TO_MINIKUBE == null || params.DEPLOY_TO_MINIKUBE
+    def imageRefs = []
+    def chartPath = null
+
+    if (!(imageBase ==~ /^[a-z0-9._-]+\/[a-z0-9._-]+$/)) {
+        error('DOCKERHUB_IMAGE_BASE must be a Docker Hub namespace/repository, for example owner/k8-lab')
+    }
+    if (!(vmHost ==~ /^[A-Za-z0-9.-]+$/) || !(vmUser ==~ /^[A-Za-z_][A-Za-z0-9_.-]*$/)) {
+        error('VM2_HOST or VM2_USER contains unsupported characters')
+    }
+    if (pullSecret && !(pullSecret ==~ /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/)) {
+        error('IMAGE_PULL_SECRET_NAME must be a valid Kubernetes Secret name')
+    }
+
+    timestamps {
+        try {
+            stage('Unit tests') {
+                sh 'mvn -B -f services/pom.xml clean verify'
+            }
+
+            def sourceSha = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+            def jobSlug = (env.JOB_NAME ?: 'jenkins').toLowerCase().replaceAll(/[^a-z0-9_.-]/, '-').take(20)
+            def imageTag = "${sourceSha}-${jobSlug}-${env.BUILD_NUMBER ?: '0'}"
+            stage('Build and scan all images') {
+                for (service in services) {
+                    def imageRef = "${imageBase}-${service}:${imageTag}"
+                    imageRefs.add(imageRef)
+                    withEnv(["SERVICE_NAME=${service}", "IMAGE_REF=${imageRef}"]) {
+                        sh 'bash scripts/ci/build-service-image.sh "$SERVICE_NAME" "$IMAGE_REF"'
+                    }
+                }
+            }
+
+            stage('Push all images') {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKERHUB_USER',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )]) {
+                    withEnv(["IMAGE_BASE=${imageBase}", "IMAGE_TAG=${imageTag}"]) {
+                        sh '''
+                            set +x
+                            DOCKER_CONFIG="$(mktemp -d)"
+                            export DOCKER_CONFIG
+                            trap 'docker logout >/dev/null 2>&1 || true; rm -f -- "$DOCKER_CONFIG/config.json"; rmdir -- "$DOCKER_CONFIG" 2>/dev/null || true' EXIT
+                            printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                            for service in user-service auth-service product-service cart-service; do
+                              image="${IMAGE_BASE}-${service}:${IMAGE_TAG}"
+                              docker push "$image"
+                              docker image rm "$image" >/dev/null
+                            done
+                        '''
+                    }
+                }
+            }
+
+            def branchName = env.BRANCH_NAME ?: ''
+            if (deployEnabled && branchName == deployBranch) {
+                def chartName = "amazon-microservices-${imageTag}.tgz"
+                chartPath = ".pipeline-artifacts/${chartName}"
+                sh "mkdir -p .pipeline-artifacts && tar -czf '${chartPath}' -C helm amazon-microservices"
+                stage('Deploy release to Minikube') {
+                    sshagent(credentials: ['vm2-ssh-key']) {
+                        withEnv([
+                            "DEPLOY_TARGET=${vmUser}@${vmHost}",
+                            "IMAGE_BASE=${imageBase}",
+                            "IMAGE_TAG=${imageTag}",
+                            "PULL_SECRET=${pullSecret}",
+                            "CHART_NAME=${chartName}"
+                        ]) {
+                            sh '''
+                                set -eu
+                                remote_dir='.cache/k8-lab-deploy'
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_TARGET" "mkdir -p '$remote_dir'"
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                                  ".pipeline-artifacts/$CHART_NAME" "$DEPLOY_TARGET:$remote_dir/$CHART_NAME"
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                                  scripts/deploy-microservices.sh "$DEPLOY_TARGET:$remote_dir/deploy-microservices.sh"
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_TARGET" \
+                                  "bash '$remote_dir/deploy-microservices.sh' '$IMAGE_BASE' '$IMAGE_TAG' '$remote_dir/$CHART_NAME' '$PULL_SECRET'"
+                            '''
+                        }
+                    }
+                }
+            } else {
+                echo "Skipping deployment: branch '${branchName}' is not the configured deploy branch '${deployBranch}', or deployment is disabled."
+            }
+        } finally {
+            if (imageRefs) {
+                withEnv(["IMAGE_REFS=${imageRefs.join(' ')}"]) {
+                    sh '''
+                        for image in $IMAGE_REFS; do
+                          docker image rm "$image" >/dev/null 2>&1 || true
+                        done
+                    '''
+                }
+            }
+            if (chartPath) {
+                withEnv(["CHART_PATH=${chartPath}"]) {
+                    sh 'rm -f -- "$CHART_PATH"'
+                }
+            }
+            sh 'docker image prune -f || true'
+        }
+    }
+}
+
+return this

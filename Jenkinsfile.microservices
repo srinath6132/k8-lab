@@ -1,0 +1,5 @@
+node {
+    checkout scm
+    def releasePipeline = load 'jenkins/pipelines/all-services.groovy'
+    releasePipeline.executeAllServices()
+}

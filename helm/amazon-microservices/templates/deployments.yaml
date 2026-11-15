@@ -1,5 +1,6 @@
 {{- $root := . -}}
 {{- range $name, $config := .Values.services }}
+{{- $jwtSecretName := default (printf "%s-jwt" $root.Release.Name) $root.Values.jwtSecretName -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,19 +20,38 @@ spec:
         app.kubernetes.io/instance: {{ $root.Release.Name }}
         app.kubernetes.io/component: {{ $name }}
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{ if $root.Values.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ $root.Values.imagePullSecretName }}
+      {{ end }}
       containers:
         - name: {{ $name }}
           image: {{ $config.image | quote }}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: {{ $config.port }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           env:
             {{ if ne $name "product" }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ $root.Release.Name }}-jwt
+                  name: {{ $jwtSecretName }}
                   key: jwt-secret
             {{ end }}
             {{ if eq $name "auth" }}
@@ -56,5 +76,8 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml $config.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 {{- end }}
