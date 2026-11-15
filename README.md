@@ -233,7 +233,7 @@ Use the same API examples as above. The existing `app/` demo and `helm/devops-de
 
 The existing root `Jenkinsfile` continues to build and deploy only the legacy `app/` demo. The microservices use separate pipelines so service teams can release one service without rebuilding the others, while the full-release pipeline verifies and deploys all four together.
 
-Create five Jenkins Multibranch Pipeline jobs for this repository. Install/configure the GitHub Branch Source integration, enable push-event indexing with a GitHub webhook, and set the branch source to discover the branches you want to build. Each job can use its own Script Path:
+Create five separate Jenkins Multibranch Pipeline jobs for this repository. Install the Pipeline, GitHub Branch Source, SSH Agent, and Credentials Binding plugins. Configure each job's branch source to discover the branches you want to build, and set the Script Path as shown below:
 
 | Job | Script Path | Behavior |
 | --- | --- | --- |
@@ -245,11 +245,23 @@ Create five Jenkins Multibranch Pipeline jobs for this repository. Install/confi
 
 These pipelines use the existing `dockerhub-creds` and `vm2-ssh-key` credentials. VM1 needs Java 17, Maven, Docker, Trivy, and the Jenkins SSH Agent/Credentials Binding plugins. Configure VM2's verified SSH host key in Jenkins `known_hosts`; do not disable host-key checking. The job parameters default to `DOCKERHUB_IMAGE_BASE=srinathalgota/k8-lab`, `VM2_HOST=192.168.56.102`, `VM2_USER=deploy`, and `DEPLOY_BRANCH=main`. Change `DEPLOY_BRANCH` to `master` if that is the protected release branch in your Jenkins job. Feature branches run build/test/scan/push but do not deploy. The **Full release** job auto-deploys on the protected branch; an individual service job only deploys when you manually enable its `DEPLOY_TO_MINIKUBE` parameter, preventing four independent jobs from racing to publish a mixed release.
 
+### Jenkins VM1 setup
+
+1. Make sure the Jenkins build agent can run `java -version`, `mvn -version`, `docker version`, and `trivy --version`. The Jenkins account needs Docker access; membership in the Docker group is root-equivalent, so use a dedicated lab VM.
+2. In **Manage Jenkins -> Credentials**, add `dockerhub-creds` as a Username with password credential using your Docker Hub username and an access token. Add `vm2-ssh-key` as an SSH Username with private key credential for the VM2 deployment account.
+3. Configure SSH host verification for Jenkins. Verify VM2's SSH host-key fingerprint out-of-band, then add the verified key to the Jenkins account's `known_hosts` (or use Jenkins' configured known-hosts provider). Do not turn off `StrictHostKeyChecking`.
+4. Create five Multibranch Pipeline jobs, one per Script Path in the table. Configure repository access credentials in the branch source if the repository is private. Set `DEPLOY_BRANCH` to the branch that is allowed to deploy (`main` or `master`); set `DOCKERHUB_IMAGE_BASE` to your Docker Hub namespace/repository prefix, without a service suffix.
+5. A GitHub webhook can trigger branch indexing only if Jenkins is securely reachable from GitHub. For a VM reachable only on a private host-only network, keep Jenkins private and use periodic branch indexing or the job's **Scan Multibranch Pipeline Now** action instead of exposing Jenkins to the public internet.
+
+The VM1-to-VM2 route must allow SSH (TCP 22) on the host-only network. The Jenkins SSH account should have access to the same Minikube profile and kubeconfig used for deployment; `VM2_USER` must therefore be the Linux account that started Minikube, or Minikube must be initialized and run under the dedicated deployment account. Do not rely on `sudo` to switch Kubernetes contexts during deployment.
+
 ### Prepare VM2 once
 
-Run these commands as the VM2 account Jenkins will SSH into. That same account must be able to run `minikube status`, `kubectl`, and `helm` without sudo:
+Run these commands as the VM2 account Jenkins will SSH into. Confirm the account and cluster context first; it must be able to run Minikube, kubectl, and Helm without sudo:
 ```bash
+whoami
 minikube status
+kubectl config current-context
 helm version --short
 kubectl create namespace shop --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n shop create secret generic shop-jwt \
@@ -260,6 +272,12 @@ Keep the JWT secret in the Kubernetes Secret; do not commit it or put it in the 
 
 The pipelines package the Helm chart from the exact checked-out commit and copy it, with the appropriate deploy script, to VM2 over SSH. They serialize Helm changes with a VM2 lock, use unique image tags containing the 12-character Git SHA/job/build number, and use Helm `--wait --atomic` for rollback on a failed rollout. Run the **Full release** job once to bootstrap the `shop` release; individual service jobs require that release to exist and then update only their own image. Jenkins never needs VM2's kubeconfig.
 
+### Release and verify
+
+1. Run the **Full release** job on the configured deploy branch. It tests all service modules, builds and scans all four images, pushes them to Docker Hub, and deploys the complete Helm release. Check the Jenkins console log for each stage.
+2. On VM2, verify the release with `kubectl -n shop get deployments,pods,services` and `kubectl -n shop get events --sort-by=.lastTimestamp`. All four Deployments should become ready. For a failed rollout, inspect the pod with `kubectl -n shop describe pod <pod-name>` and its logs with `kubectl -n shop logs <pod-name>`.
+3. For a normal single-service release, run that service's Multibranch job and enable `DEPLOY_TO_MINIKUBE` when building the protected deploy branch. Feature branches can test, scan, and publish images but will not deploy unless `DEPLOY_BRANCH` is deliberately changed.
+
 Once deployed, keep one command per terminal on VM2 to access the APIs from the host-only network (replace the IP if VM2 uses a different host-only address):
 ```bash
 kubectl -n shop port-forward --address 192.168.56.102 svc/shop-user 8081:8080
@@ -267,6 +285,28 @@ kubectl -n shop port-forward --address 192.168.56.102 svc/shop-auth 8082:8080
 kubectl -n shop port-forward --address 192.168.56.102 svc/shop-product 8083:8080
 kubectl -n shop port-forward --address 192.168.56.102 svc/shop-cart 8084:8080
 ```
+Leave these commands running. If UFW is enabled on VM2, allow the forwarded ports from the host-only subnet:
+```bash
+sudo ufw allow from 192.168.56.0/24 to any port 8081:8084 proto tcp
+```
+From Windows, replace the `localhost` URLs in the API examples above with VM2's host-only IP; for example:
+```powershell
+$base = 'http://192.168.56.102'
+Invoke-RestMethod -Uri "${base}:8083/api/products?q=camera"
+$registration = @{ name = 'Sam Shopper'; email = 'sam@example.com'; password = 'change-me-123' } |
+  ConvertTo-Json
+$session = Invoke-RestMethod -Uri "${base}:8082/api/auth/register" `
+  -Method Post -ContentType 'application/json' -Body $registration
+$headers = @{ Authorization = "Bearer $($session.token)" }
+Invoke-RestMethod -Uri "${base}:8081/api/users/me" -Headers $headers
+$item = @{ productId = 'camera-001'; quantity = 1 } | ConvertTo-Json
+Invoke-RestMethod -Uri "${base}:8084/api/cart/items" `
+  -Method Post -Headers $headers -ContentType 'application/json' -Body $item
+Invoke-RestMethod -Uri "${base}:8084/api/cart" -Headers $headers
+```
+
+If Windows cannot connect, confirm the port-forward processes are still running, that the address belongs to VM2's host-only adapter, and that VirtualBox host-only networking and the VM2 firewall allow the traffic. Do not expose the Kubernetes API or Jenkins to the public internet.
+
 This is a corporate-style learning workflow, not production HA: Minikube is single-node and the demo services keep application data in memory. Use persistent databases, TLS/Ingress, managed secrets, backups, and a production Kubernetes cluster before handling real users or orders.
 
 ## Important notes
