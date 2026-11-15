@@ -1,0 +1,45 @@
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: user-service
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-with-at-least-32-bytes}
+    ports:
+      - "8081:8080"
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: auth-service
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-with-at-least-32-bytes}
+      USER_SERVICE_URL: http://user-service:8080
+    ports:
+      - "8082:8080"
+    depends_on:
+      - user-service
+  product-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: product-service
+    ports:
+      - "8083:8080"
+  cart-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: cart-service
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-with-at-least-32-bytes}
+      PRODUCT_SERVICE_URL: http://product-service:8080
+    ports:
+      - "8084:8080"
+    depends_on:
+      - product-service

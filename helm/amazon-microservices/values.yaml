@@ -1,0 +1,45 @@
+replicaCount: 1
+
+jwtSecret: local-development-secret-with-at-least-32-bytes
+
+services:
+  user:
+    image: k8-lab/user-service:local
+    port: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  auth:
+    image: k8-lab/auth-service:local
+    port: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  product:
+    image: k8-lab/product-service:local
+    port: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  cart:
+    image: k8-lab/cart-service:local
+    port: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

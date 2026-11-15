@@ -1,0 +1,60 @@
+{{- $root := . -}}
+{{- range $name, $config := .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" $root.Release.Name $name }}
+  labels:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $root.Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ $root.Release.Name }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: {{ $config.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: {{ $config.port }}
+          env:
+            {{ if ne $name "product" }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Release.Name }}-jwt
+                  key: jwt-secret
+            {{ end }}
+            {{ if eq $name "auth" }}
+            - name: USER_SERVICE_URL
+              value: http://{{ $root.Release.Name }}-user:{{ $root.Values.services.user.port }}
+            {{ end }}
+            {{ if eq $name "cart" }}
+            - name: PRODUCT_SERVICE_URL
+              value: http://{{ $root.Release.Name }}-product:{{ $root.Values.services.product.port }}
+            {{ end }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml $config.resources | nindent 12 }}
+---
+{{- end }}

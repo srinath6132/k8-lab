@@ -1,0 +1,6 @@
+apiVersion: v2
+name: amazon-microservices
+description: Local demo user, authentication, product search, and shopping cart services
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

@@ -132,6 +132,103 @@ Forward host ports 3000/9090 if needed. Get the Grafana admin password:
 kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
 ```
 
+## 8. Run the shopping microservices locally or on Minikube
+
+The separate `services/` Maven build contains four Spring Boot services:
+- **user-service** stores user profiles and password hashes.
+- **auth-service** registers/logs in users and returns a one-hour signed bearer token.
+- **product-service** searches the sample product catalog and returns product image URLs.
+- **cart-service** keeps a per-user cart and gets product details from product-service.
+
+The sample catalog, user accounts, and carts are in memory and reset when a service restarts. Keep the chart at one replica per service until a shared persistent store is added. Product images are external URLs. This is a local learning demo, not a production storefront.
+
+Run the focused service tests from the repository root with:
+```bash
+mvn -B -f services/pom.xml test
+```
+
+### Docker Compose
+
+Install Docker Compose v2, then from the repository root run:
+```bash
+docker compose up --build
+```
+The APIs are available on localhost: users `8081`, auth `8082`, products `8083`, and cart `8084`. To use a non-demo token key, export a value of at least 32 bytes as `JWT_SECRET` before starting Compose. Stop with `Ctrl+C`, then run `docker compose down`.
+
+Try the API flow. The curl examples below require Bash or Git Bash; in PowerShell, use:
+```powershell
+Invoke-RestMethod -Uri 'http://localhost:8083/api/products?q=camera'
+$registration = @{ name = 'Sam Shopper'; email = 'sam@example.com'; password = 'change-me-123' } |
+  ConvertTo-Json
+$session = Invoke-RestMethod -Uri 'http://localhost:8082/api/auth/register' `
+  -Method Post -ContentType 'application/json' -Body $registration
+$headers = @{ Authorization = "Bearer $($session.token)" }
+Invoke-RestMethod -Uri 'http://localhost:8081/api/users/me' -Headers $headers
+$item = @{ productId = 'camera-001'; quantity = 1 } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://localhost:8084/api/cart/items' `
+  -Method Post -Headers $headers -ContentType 'application/json' -Body $item
+Invoke-RestMethod -Uri 'http://localhost:8084/api/cart' -Headers $headers
+```
+
+Or with Bash/Git Bash:
+```bash
+curl -s http://localhost:8083/api/products?q=camera
+curl -s -X POST http://localhost:8082/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Sam Shopper","email":"sam@example.com","password":"change-me-123"}'
+```
+Copy the returned `token` into a shell variable named `TOKEN`, then:
+```bash
+curl -s http://localhost:8081/api/users/me -H "Authorization: Bearer $TOKEN"
+curl -s -X POST http://localhost:8084/api/cart/items \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"productId":"camera-001","quantity":1}'
+curl -s http://localhost:8084/api/cart -H "Authorization: Bearer $TOKEN"
+```
+Login uses `POST /api/auth/login` with `{"email":"sam@example.com","password":"change-me-123"}`. Remove an item with `DELETE /api/cart/items/{productId}`, or clear the cart with `DELETE /api/cart`.
+
+### Minikube / Helm
+
+With Docker, Minikube, kubectl, and Helm installed, build each image into Minikube's image store from the repository root:
+```bash
+minikube start
+docker build -f services/Dockerfile --build-arg SERVICE=user-service -t k8-lab/user-service:local .
+docker build -f services/Dockerfile --build-arg SERVICE=auth-service -t k8-lab/auth-service:local .
+docker build -f services/Dockerfile --build-arg SERVICE=product-service -t k8-lab/product-service:local .
+docker build -f services/Dockerfile --build-arg SERVICE=cart-service -t k8-lab/cart-service:local .
+minikube image load k8-lab/user-service:local
+minikube image load k8-lab/auth-service:local
+minikube image load k8-lab/product-service:local
+minikube image load k8-lab/cart-service:local
+helm upgrade --install shop helm/amazon-microservices --namespace shop --create-namespace \
+  --set-string jwtSecret='replace-this-with-a-random-secret-at-least-32-bytes-long'
+kubectl -n shop get pods,svc
+```
+Replace the example secret before using the chart outside a disposable local cluster. To publish all images to Docker Hub, log in with `docker login`, set `DOCKERHUB_USER`, then run:
+```bash
+DOCKERHUB_USER=your-dockerhub-user
+for service in user auth product cart; do
+  docker build -f services/Dockerfile --build-arg SERVICE="${service}-service" \
+    -t "$DOCKERHUB_USER/k8-lab-${service}-service:1.0.0" .
+  docker push "$DOCKERHUB_USER/k8-lab-${service}-service:1.0.0"
+done
+helm upgrade --install shop helm/amazon-microservices --namespace shop --create-namespace \
+  --set-string jwtSecret='replace-this-with-a-random-secret-at-least-32-bytes-long' \
+  --set services.user.image="$DOCKERHUB_USER/k8-lab-user-service:1.0.0" \
+  --set services.auth.image="$DOCKERHUB_USER/k8-lab-auth-service:1.0.0" \
+  --set services.product.image="$DOCKERHUB_USER/k8-lab-product-service:1.0.0" \
+  --set services.cart.image="$DOCKERHUB_USER/k8-lab-cart-service:1.0.0"
+```
+
+For access from the host, keep these commands running in separate terminals:
+```bash
+kubectl -n shop port-forward svc/shop-user 8081:8080
+kubectl -n shop port-forward svc/shop-auth 8082:8080
+kubectl -n shop port-forward svc/shop-product 8083:8080
+kubectl -n shop port-forward svc/shop-cart 8084:8080
+```
+Use the same curl examples as above. The existing `app/` demo, `helm/devops-demo` chart, and Jenkins pipeline remain unchanged.
+
 ## Important notes
 - This is a learning lab, not a production HA architecture.
 - Minikube is a single-node development cluster by default.
