@@ -95,6 +95,7 @@ def executeSingleService(String serviceName) {
                         ]) {
                             sh '''
                                 set -eu
+                                PULL_SECRET="${PULL_SECRET:-}"
                                 remote_dir='.cache/k8-lab-deploy'
                                 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_TARGET" "mkdir -p '$remote_dir'"
                                 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
