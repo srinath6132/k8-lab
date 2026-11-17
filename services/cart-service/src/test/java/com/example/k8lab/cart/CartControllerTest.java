@@ -34,11 +34,11 @@ class CartControllerTest {
     @Test
     void addsAndRemovesItemsFromOnlyTheAuthenticatedUsersCart() {
         expectCameraLookup();
+        expectCameraLookup();
         var cart = carts.addItem(USER_ID, new CartController.AddItem("camera-001", 2));
         assertEquals(2, cart.items().get(0).quantity());
         assertEquals("698.00", cart.total().toPlainString());
 
-        expectCameraLookup();
         cart = carts.addItem(USER_ID, new CartController.AddItem("camera-001", 1));
         assertEquals(3, cart.items().get(0).quantity());
         assertEquals(0, carts.getCart("another-user").items().size());
