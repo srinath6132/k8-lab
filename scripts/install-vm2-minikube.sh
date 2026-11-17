@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg apt-transport-https conntrack socat docker.io openssh-server
+sudo apt-get install -y ca-certificates curl gnupg apt-transport-https conntrack socat util-linux docker.io openssh-server
 sudo systemctl enable --now docker ssh
 sudo usermod -aG docker "$USER"
 

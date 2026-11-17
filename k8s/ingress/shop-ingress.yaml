@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+  namespace: shop
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: shop.local
+      http:
+        paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: shop-auth
+                port:
+                  number: 8080
+          - path: /api/users
+            pathType: Prefix
+            backend:
+              service:
+                name: shop-user
+                port:
+                  number: 8080
+          - path: /api/products
+            pathType: Prefix
+            backend:
+              service:
+                name: shop-product
+                port:
+                  number: 8080
+          - path: /api/cart
+            pathType: Prefix
+            backend:
+              service:
+                name: shop-cart
+                port:
+                  number: 8080

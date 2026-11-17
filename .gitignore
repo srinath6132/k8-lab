@@ -1,0 +1,23 @@
+# Java/Maven
+**/target/
+*.class
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+*.p12
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Build artifacts and local state
+.pipeline-artifacts/
+.cache/

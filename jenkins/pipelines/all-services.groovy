@@ -50,7 +50,7 @@ def executeAllServices() {
                     def imageRef = "${imageBase}-${service}:${imageTag}"
                     imageRefs.add(imageRef)
                     withEnv(["SERVICE_NAME=${service}", "IMAGE_REF=${imageRef}"]) {
-                        sh 'bash scripts/ci/build-service-image.sh "$SERVICE_NAME" "$IMAGE_REF"'
+                        sh 'bash scripts/build.sh "$SERVICE_NAME" "$IMAGE_REF"'
                     }
                 }
             }
@@ -80,9 +80,9 @@ def executeAllServices() {
 
             def branchName = env.BRANCH_NAME ?: ''
             if (deployEnabled && branchName == deployBranch) {
-                def chartName = "amazon-microservices-${imageTag}.tgz"
+                def chartName = "service-charts-${imageTag}.tgz"
                 chartPath = ".pipeline-artifacts/${chartName}"
-                sh "mkdir -p .pipeline-artifacts && tar -czf '${chartPath}' -C helm amazon-microservices"
+                sh "mkdir -p .pipeline-artifacts && tar -czf '${chartPath}' -C helm auth-service cart-service product-service user-service"
                 stage('Deploy release to Minikube') {
                     sshagent(credentials: ['vm2-ssh-key']) {
                         withEnv([
@@ -99,9 +99,10 @@ def executeAllServices() {
                                 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
                                   ".pipeline-artifacts/$CHART_NAME" "$DEPLOY_TARGET:$remote_dir/$CHART_NAME"
                                 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
-                                  scripts/deploy-microservices.sh "$DEPLOY_TARGET:$remote_dir/deploy-microservices.sh"
+                                  scripts/deploy.sh scripts/deploy-microservice.sh scripts/deploy-microservices.sh scripts/health-check.sh \
+                                  "$DEPLOY_TARGET:$remote_dir/"
                                 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_TARGET" \
-                                  "bash '$remote_dir/deploy-microservices.sh' '$IMAGE_BASE' '$IMAGE_TAG' '$remote_dir/$CHART_NAME' '$PULL_SECRET'"
+                                  "bash '$remote_dir/deploy.sh' all '$IMAGE_BASE' '$IMAGE_TAG' '$remote_dir/$CHART_NAME' '$PULL_SECRET' && bash '$remote_dir/health-check.sh' shop"
                             '''
                         }
                     }

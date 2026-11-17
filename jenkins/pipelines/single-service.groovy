@@ -54,7 +54,7 @@ def executeSingleService(String serviceName) {
             imageRef = "${imageBase}-${serviceName}:${imageTag}"
             stage('Build and scan image') {
                 withEnv(["SERVICE_NAME=${serviceName}", "IMAGE_REF=${imageRef}"]) {
-                    sh 'bash scripts/ci/build-service-image.sh "$SERVICE_NAME" "$IMAGE_REF"'
+                    sh 'bash scripts/build.sh "$SERVICE_NAME" "$IMAGE_REF"'
                 }
             }
 
@@ -80,9 +80,9 @@ def executeSingleService(String serviceName) {
 
             def branchName = env.BRANCH_NAME ?: ''
             if (deployEnabled && branchName == deployBranch) {
-                def chartName = "amazon-microservices-${imageTag}.tgz"
+                def chartName = "${serviceName}-${imageTag}.tgz"
                 chartPath = ".pipeline-artifacts/${chartName}"
-                sh "mkdir -p .pipeline-artifacts && tar -czf '${chartPath}' -C helm amazon-microservices"
+                sh "mkdir -p .pipeline-artifacts && tar -czf '${chartPath}' -C helm '${serviceName}'"
                 stage('Deploy service to Minikube') {
                     sshagent(credentials: ['vm2-ssh-key']) {
                         withEnv([
@@ -100,9 +100,10 @@ def executeSingleService(String serviceName) {
                                 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
                                   ".pipeline-artifacts/$CHART_NAME" "$DEPLOY_TARGET:$remote_dir/$CHART_NAME"
                                 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
-                                  scripts/deploy-microservice.sh "$DEPLOY_TARGET:$remote_dir/deploy-microservice.sh"
+                                  scripts/deploy.sh scripts/deploy-microservice.sh scripts/deploy-microservices.sh \
+                                  "$DEPLOY_TARGET:$remote_dir/"
                                 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_TARGET" \
-                                  "bash '$remote_dir/deploy-microservice.sh' '$SERVICE_NAME' '$IMAGE_BASE' '$IMAGE_TAG' '$remote_dir/$CHART_NAME' '$PULL_SECRET'"
+                                  "bash '$remote_dir/deploy.sh' '$SERVICE_NAME' '$IMAGE_BASE' '$IMAGE_TAG' '$remote_dir/$CHART_NAME' '$PULL_SECRET'"
                             '''
                         }
                     }

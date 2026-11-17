@@ -1,0 +1,24 @@
+fullnameOverride: shop-cart
+component: cart
+jwtSecretName: shop-jwt
+image:
+  repository: k8-lab-cart-service
+  tag: local
+  pullPolicy: IfNotPresent
+replicaCount: 1
+containerPort: 8080
+service:
+  port: 8080
+  type: ClusterIP
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+env:
+  - name: PRODUCT_SERVICE_URL
+    value: http://shop-product:8080
+  - name: SERVER_PORT
+    value: "8080"

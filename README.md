@@ -142,6 +142,29 @@ The separate `services/` Maven build contains four Spring Boot services:
 
 The sample catalog, user accounts, and carts are in memory and reset when a service restarts. Keep the chart at one replica per service until a shared persistent store is added. Product images are external URLs. This is a local learning demo, not a production storefront.
 
+The repo is organized by service for independent image builds and Helm releases: each `services/<service>/` has its Maven module and Dockerfile, and each `helm/<service>/` has that service's chart. `jenkins/pipelines/` contains the Multibranch entry points and shared pipeline implementations; `k8s/` contains the shop namespace, optional ingress/network policies, and monitoring resources. The root `Jenkinsfile` and root microservice Jenkinsfiles remain for compatibility.
+
+```text
+k8-lab/
+├── services/                 # Spring Boot services, shared Java module, Maven reactor
+├── jenkins/
+│   ├── pipelines/            # Per-service jobs, orchestrator, shared pipeline logic
+│   └── shared/               # Jenkins credentials and operating conventions
+├── helm/                     # One chart per service; combined chart retained for local use
+├── k8s/
+│   ├── namespaces/
+│   ├── ingress/
+│   ├── network-policies/
+│   └── monitoring/
+├── scripts/                  # Change detection, image build, deploy, health checks
+├── sonarqube/                # Optional scanner configuration
+├── app/                      # Existing single-app demo
+├── compose.yaml
+├── .dockerignore
+├── .gitignore
+└── README.md
+```
+
 Run the focused service tests from the repository root with:
 ```bash
 mvn -B -f services/pom.xml test
@@ -229,6 +252,30 @@ kubectl -n shop port-forward svc/shop-cart 8084:8080
 ```
 Use the same API examples as above. The existing `app/` demo and `helm/devops-demo` chart remain available.
 
+### Independent service charts
+
+The corporate Jenkins jobs use the standalone charts in `helm/<service>/`; they create four Helm releases (`shop-user-service`, `shop-auth-service`, `shop-product-service`, and `shop-cart-service`) with stable Kubernetes Service names `shop-user`, `shop-auth`, `shop-product`, and `shop-cart`. The existing `helm/amazon-microservices` chart remains supported for the manual all-in-one deployment above, but do not manage the same `shop-*` workloads with both chart layouts at once.
+
+The standalone chart images can also be built with `bash scripts/build.sh <service-name> <image:tag>` from the repository root. Jenkins publishes the images and installs the individual charts on VM2. Deploying a single service uses its own chart and only that Helm release; the orchestrator upgrades all four releases in dependency order. Each upgrade is atomic individually, not one transaction across the entire four-service release.
+
+For example, after creating the `shop-jwt` Secret and building/pushing an image:
+```bash
+helm upgrade --install shop-user-service helm/user-service \
+  --namespace shop --create-namespace --wait --atomic \
+  --set-string image.repository=your-dockerhub-user/k8-lab-user-service \
+  --set-string image.tag=1.0.0 \
+  --set-string jwtSecretName=shop-jwt
+```
+
+To turn on the optional Ingress and NetworkPolicies, enable an ingress controller and use a CNI that enforces Kubernetes NetworkPolicies, then apply:
+```bash
+minikube addons enable ingress
+kubectl apply -f k8s/namespaces/shop.yaml
+kubectl apply -f k8s/network-policies/shop-network-policies.yaml
+kubectl apply -f k8s/ingress/shop-ingress.yaml
+```
+The ingress host is `shop.local`; map that name to VM2's host-only IP on clients that will use it. If the Minikube CNI does not enforce NetworkPolicies, the policies will not restrict traffic; verify CNI support before relying on them.
+
 ## 9. Jenkins CI/CD for individual services and full releases
 
 The existing root `Jenkinsfile` continues to build and deploy only the legacy `app/` demo. The microservices use separate pipelines so service teams can release one service without rebuilding the others, while the full-release pipeline verifies and deploys all four together.
@@ -237,13 +284,15 @@ Create five separate Jenkins Multibranch Pipeline jobs for this repository. Inst
 
 | Job | Script Path | Behavior |
 | --- | --- | --- |
-| User service | `Jenkinsfile.user-service` | Test, build, scan, and publish only user-service; optionally deploy it manually |
-| Auth service | `Jenkinsfile.auth-service` | Same flow for auth-service |
-| Product service | `Jenkinsfile.product-service` | Same flow for product-service |
-| Cart service | `Jenkinsfile.cart-service` | Same flow for cart-service |
-| Full release | `Jenkinsfile.microservices` | Test all modules, build/scan/push all four images, and roll out the complete chart |
+| User service | `jenkins/pipelines/Jenkinsfile.user-service` | Test, build, scan, and publish only user-service; optionally deploy its Helm chart |
+| Auth service | `jenkins/pipelines/Jenkinsfile.auth-service` | Same flow for auth-service |
+| Product service | `jenkins/pipelines/Jenkinsfile.product-service` | Same flow for product-service |
+| Cart service | `jenkins/pipelines/Jenkinsfile.cart-service` | Same flow for cart-service |
+| Orchestrator | `jenkins/pipelines/Jenkinsfile.orchestrator` | Test all modules, build/scan/push all four images, and roll out all four service charts |
 
-These pipelines use the existing `dockerhub-creds` and `vm2-ssh-key` credentials. VM1 needs Java 17, Maven, Docker, Trivy, and the Jenkins SSH Agent/Credentials Binding plugins. Configure VM2's verified SSH host key in Jenkins `known_hosts`; do not disable host-key checking. The job parameters default to `DOCKERHUB_IMAGE_BASE=srinathalgota/k8-lab`, `VM2_HOST=192.168.56.102`, `VM2_USER=deploy`, and `DEPLOY_BRANCH=main`. Change `DEPLOY_BRANCH` to `master` if that is the protected release branch in your Jenkins job. Feature branches run build/test/scan/push but do not deploy. The **Full release** job auto-deploys on the protected branch; an individual service job only deploys when you manually enable its `DEPLOY_TO_MINIKUBE` parameter, preventing four independent jobs from racing to publish a mixed release.
+The root `Jenkinsfile.user-service`, `Jenkinsfile.auth-service`, `Jenkinsfile.product-service`, `Jenkinsfile.cart-service`, and `Jenkinsfile.microservices` are compatibility entry points for existing jobs; use the paths in `jenkins/pipelines/` for new jobs. The shared implementation and credential conventions are documented in `jenkins/shared/README.md`.
+
+These pipelines use the existing `dockerhub-creds` and `vm2-ssh-key` credentials. VM1 needs Java 17, Maven, Docker, Trivy, and the Jenkins SSH Agent/Credentials Binding plugins. Configure VM2's verified SSH host key in Jenkins `known_hosts`; do not disable host-key checking. The job parameters default to `DOCKERHUB_IMAGE_BASE=srinathalgota/k8-lab`, `VM2_HOST=192.168.56.102`, `VM2_USER=deploy`, and `DEPLOY_BRANCH=main`. Change `DEPLOY_BRANCH` to `master` if that is the protected release branch in your Jenkins job. Feature branches run build/test/scan/push but do not deploy. The **Orchestrator** job auto-deploys on the protected branch; an individual service job only deploys when you manually enable its `DEPLOY_TO_MINIKUBE` parameter.
 
 ### Jenkins VM1 setup
 
@@ -270,13 +319,35 @@ kubectl -n shop create secret generic shop-jwt \
 ```
 Keep the JWT secret in the Kubernetes Secret; do not commit it or put it in the Jenkinsfile. If the Docker Hub repositories are private, create a Kubernetes Docker registry pull secret in `shop` and set the Jenkins parameter `IMAGE_PULL_SECRET_NAME` to that Secret's name.
 
-The pipelines package the Helm chart from the exact checked-out commit and copy it, with the appropriate deploy script, to VM2 over SSH. They serialize Helm changes with a VM2 lock, use unique image tags containing the 12-character Git SHA/job/build number, and use Helm `--wait --atomic` for rollback on a failed rollout. Run the **Full release** job once to bootstrap the `shop` release; individual service jobs require that release to exist and then update only their own image. Jenkins never needs VM2's kubeconfig.
+The pipelines package the Helm chart(s) from the exact checked-out commit and copy them, with the deployment and health-check scripts, to VM2 over SSH. They serialize Helm changes with a VM2 lock, use unique image tags containing the 12-character Git SHA/job/build number, and use Helm `--wait --atomic` for rollback on a failed service rollout. Run the **Orchestrator** job to deploy all four services; an individual service job installs or updates only its own Helm release. Jenkins never needs VM2's kubeconfig.
+
+Fetch the target branch first, then `bash scripts/detect-changes.sh origin/main` prints the service names affected by a branch diff; shared build, CI, Kubernetes, or combined-chart changes select all services. `bash scripts/health-check.sh shop` waits for all four deployments and prints their Kubernetes status.
+
+If you previously deployed the `helm/amazon-microservices` chart as Helm release `shop`, migrate once before using the standalone-chart Jenkins pipelines. This removes the old combined release's workloads and causes downtime. Preserve the existing JWT key because changing it invalidates issued tokens. Run as the VM2 deployment account:
+```bash
+set -euo pipefail
+secret_file="$(mktemp)"
+chmod 600 "$secret_file"
+trap 'rm -f "$secret_file"' EXIT
+kubectl -n shop get secret shop-jwt -o jsonpath='{.data.jwt-secret}' | base64 --decode > "$secret_file"
+test -s "$secret_file"
+helm uninstall shop --namespace shop
+kubectl -n shop create secret generic shop-jwt \
+  --from-file=jwt-secret="$secret_file" \
+  --dry-run=client -o yaml | kubectl apply -f -
+rm -f "$secret_file"
+trap - EXIT
+```
+Re-run the orchestrator immediately afterward. If the `shop-jwt` Secret is not present before migration, stop and provision it using the VM2 setup instructions instead.
+Do not run the combined `shop` release and the standalone charts together because they share Kubernetes resource names.
 
 ### Release and verify
 
-1. Run the **Full release** job on the configured deploy branch. It tests all service modules, builds and scans all four images, pushes them to Docker Hub, and deploys the complete Helm release. Check the Jenkins console log for each stage.
-2. On VM2, verify the release with `kubectl -n shop get deployments,pods,services` and `kubectl -n shop get events --sort-by=.lastTimestamp`. All four Deployments should become ready. For a failed rollout, inspect the pod with `kubectl -n shop describe pod <pod-name>` and its logs with `kubectl -n shop logs <pod-name>`.
+1. Run the **Orchestrator** job on the configured deploy branch. It tests all service modules, builds and scans all four images, pushes them to Docker Hub, and deploys the four Helm releases. Check the Jenkins console log for each stage.
+2. The orchestrator runs the copied health check on VM2. You can also run `bash ~/.cache/k8-lab-deploy/health-check.sh shop`, then verify with `kubectl -n shop get deployments,pods,services` and `kubectl -n shop get events --sort-by=.lastTimestamp`. All four Deployments should become ready. For a failed rollout, set `POD_NAME` to the affected pod's name and inspect it with `kubectl -n shop describe pod "$POD_NAME"` and `kubectl -n shop logs "$POD_NAME"`.
 3. For a normal single-service release, run that service's Multibranch job and enable `DEPLOY_TO_MINIKUBE` when building the protected deploy branch. Feature branches can test, scan, and publish images but will not deploy unless `DEPLOY_BRANCH` is deliberately changed.
+
+The optional SonarQube scanner settings are in `sonarqube/sonar-project.properties`; build/test first, then run `sonar-scanner -Dproject.settings=sonarqube/sonar-project.properties` from the repository root after configuring a SonarQube server and token. The Jenkins jobs do not enforce a SonarQube quality gate by default.
 
 Once deployed, keep one command per terminal on VM2 to access the APIs from the host-only network (replace the IP if VM2 uses a different host-only address):
 ```bash
