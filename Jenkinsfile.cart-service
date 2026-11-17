@@ -1,5 +1,0 @@
-node {
-    checkout scm
-    def servicePipeline = load 'jenkins/pipelines/single-service.groovy'
-    servicePipeline.executeSingleService('cart-service')
-}

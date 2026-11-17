@@ -142,7 +142,7 @@ The separate `services/` Maven build contains four Spring Boot services:
 
 The sample catalog, user accounts, and carts are in memory and reset when a service restarts. Keep the chart at one replica per service until a shared persistent store is added. Product images are external URLs. This is a local learning demo, not a production storefront.
 
-The repo is organized by service for independent image builds and Helm releases: each `services/<service>/` has its Maven module and Dockerfile, and each `helm/<service>/` has that service's chart. `jenkins/pipelines/` contains the Multibranch entry points and shared pipeline implementations; `k8s/` contains the shop namespace, optional ingress/network policies, and monitoring resources. The root `Jenkinsfile` and root microservice Jenkinsfiles remain for compatibility.
+The repo is organized by service for independent image builds and Helm releases: each `services/<service>/` has its Maven module and Dockerfile, and each `helm/<service>/` has that service's chart. `jenkins/pipelines/` contains all microservice Multibranch entry points and shared pipeline implementations; `k8s/` contains the shop namespace, optional ingress/network policies, and monitoring resources. The root `Jenkinsfile` is kept only for the legacy `app/` demo.
 
 ```text
 k8-lab/
@@ -290,7 +290,7 @@ Create five separate Jenkins Multibranch Pipeline jobs for this repository. Inst
 | Cart service | `jenkins/pipelines/Jenkinsfile.cart-service` | Same flow for cart-service |
 | Orchestrator | `jenkins/pipelines/Jenkinsfile.orchestrator` | Test all modules, build/scan/push all four images, and roll out all four service charts |
 
-The root `Jenkinsfile.user-service`, `Jenkinsfile.auth-service`, `Jenkinsfile.product-service`, `Jenkinsfile.cart-service`, and `Jenkinsfile.microservices` are compatibility entry points for existing jobs; use the paths in `jenkins/pipelines/` for new jobs. The shared implementation and credential conventions are documented in `jenkins/shared/README.md`.
+Use only the `jenkins/pipelines/` paths in the table for the microservice jobs; the root `Jenkinsfile` remains dedicated to the legacy `app/` demo. The shared implementation and credential conventions are documented in `jenkins/shared/README.md`.
 
 These pipelines use the existing `dockerhub-creds` and `vm2-ssh-key` credentials. VM1 needs Java 17, Maven, Docker, Trivy, and the Jenkins SSH Agent/Credentials Binding plugins. Configure VM2's verified SSH host key in Jenkins `known_hosts`; do not disable host-key checking. The job parameters default to `DOCKERHUB_IMAGE_BASE=srinathalgota/k8-lab`, `VM2_HOST=192.168.56.102`, `VM2_USER=deploy`, and `DEPLOY_BRANCH=main`. Change `DEPLOY_BRANCH` to `master` if that is the protected release branch in your Jenkins job. Feature branches run build/test/scan/push but do not deploy. The **Orchestrator** job auto-deploys on the protected branch; an individual service job only deploys when you manually enable its `DEPLOY_TO_MINIKUBE` parameter.
 
