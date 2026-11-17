@@ -1,0 +1,232 @@
+K8-LAB: JENKINS + MINIKUBE VM DEPLOYMENT COMMANDS
+================================================
+
+This guide deploys the microservices from VM1 (Jenkins/build VM) to VM2
+(Minikube VM), then exposes them through the NGINX Ingress controller.
+
+Assumptions
+-----------
+- Ubuntu VMs share a VirtualBox host-only network.
+- Example VM2 IP: 192.168.56.102. Replace it with VM2's actual host-only IP.
+- The code is on branch: srinath6132-minikube-microservices.
+- Replace YOUR_DOCKERHUB_USER with your Docker Hub namespace.
+- Run the VM2 Minikube commands as the same Linux account that Jenkins uses
+  for SSH (shown below as "deploy"). Minikube profiles are user-specific.
+- The repository root Jenkinsfile belongs to the legacy app. Use the
+  microservice pipeline paths listed in the Jenkins section.
+
+
+1. VM2: INSTALL MINIKUBE AND PREPARE THE DEPLOYMENT ACCOUNT
+----------------------------------------------------------
+
+Clone the repository and run the checked-in VM2 installer:
+
+  sudo apt-get update
+  sudo apt-get install -y git
+  git clone --branch srinath6132-minikube-microservices https://github.com/srinath6132/k8-lab.git
+  cd k8-lab
+  chmod +x scripts/install-vm2-minikube.sh
+  ./scripts/install-vm2-minikube.sh
+
+Create a dedicated deploy account and add it to the Docker group:
+
+  sudo adduser deploy
+  sudo usermod -aG docker deploy
+
+Log out and reconnect as deploy so the new group membership takes effect.
+Start Minikube as deploy and enable the ingress addon:
+
+  minikube start --driver=docker --cpus=4 --memory=6144
+  minikube status
+  kubectl get nodes
+  minikube addons enable ingress
+  kubectl -n ingress-nginx get pods,svc
+
+As deploy, clone the repository for the Kubernetes manifests, create the
+namespace, and create the JWT secret required by the auth/user services:
+
+  git clone --branch srinath6132-minikube-microservices https://github.com/srinath6132/k8-lab.git
+  cd k8-lab
+  kubectl apply -f k8s/namespaces/shop.yaml
+  kubectl -n shop create secret generic shop-jwt --from-literal=jwt-secret="$(openssl rand -base64 48)"
+  kubectl -n shop get secret shop-jwt
+
+Keep the generated JWT secret out of source control. The Jenkins deploy
+script expects the Secret name "shop-jwt" and data key "jwt-secret".
+
+If the Kubernetes images are private, create a Docker Hub image pull secret
+in the shop namespace. Use a Docker Hub access token, not your password:
+
+  kubectl -n shop create secret docker-registry dockerhub-pull \
+    --docker-server=https://index.docker.io/v1/ \
+    --docker-username=YOUR_DOCKERHUB_USER \
+    --docker-password=YOUR_DOCKERHUB_ACCESS_TOKEN \
+    --docker-email=YOUR_EMAIL
+
+Enter "dockerhub-pull" for IMAGE_PULL_SECRET_NAME in the Jenkins job.
+For public images, leave IMAGE_PULL_SECRET_NAME blank and skip this step.
+
+
+2. VM1: INSTALL JENKINS AND BUILD TOOLS
+---------------------------------------
+
+Clone the same branch and run the VM1 installer:
+
+  sudo apt-get update
+  sudo apt-get install -y git
+  git clone --branch srinath6132-minikube-microservices https://github.com/srinath6132/k8-lab.git
+  cd k8-lab
+  chmod +x scripts/install-vm1-ubuntu.sh
+  ./scripts/install-vm1-ubuntu.sh
+
+Install Jenkins from its Debian repository:
+
+  sudo install -d -m 0755 /etc/apt/keyrings
+  sudo curl -fsSL -o /etc/apt/keyrings/jenkins-keyring.asc https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+  echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list >/dev/null
+  sudo apt-get update
+  sudo apt-get install -y jenkins
+  sudo usermod -aG docker jenkins
+  sudo systemctl enable --now jenkins
+  sudo systemctl restart jenkins
+
+Docker group membership grants root-equivalent privileges. Use this only
+on a dedicated lab VM. If you also added your login account to the group,
+log out and back in.
+
+Check VM1 can reach VM2 and SSH as deploy:
+
+  ping -c 3 192.168.56.102
+  ssh deploy@192.168.56.102 'minikube status && kubectl get nodes && helm version --short'
+
+
+3. SET UP THE JENKINS-TO-VM2 SSH KEY
+------------------------------------
+
+On VM1, generate a dedicated key. Protect the private key:
+
+  ssh-keygen -t ed25519 -C jenkins-vm2-deploy -f ~/.ssh/jenkins-vm2-deploy
+  ssh-copy-id -i ~/.ssh/jenkins-vm2-deploy.pub deploy@192.168.56.102
+
+In Jenkins, go to Manage Jenkins > Credentials and add:
+
+- ID: dockerhub-creds
+  Kind: Username with password
+  Username: Docker Hub username
+  Password: Docker Hub access token
+
+- ID: vm2-ssh-key
+  Kind: SSH Username with private key
+  Username: deploy
+  Private key: paste the contents of ~/.ssh/jenkins-vm2-deploy
+
+Do not commit either credential or put it in pipeline parameters.
+
+The pipelines use StrictHostKeyChecking=yes. Before adding VM2's host key
+to Jenkins' known_hosts, verify the VM2 SSH host-key fingerprint.
+
+On VM2:
+
+  sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+
+On VM1, capture and inspect the key fingerprint; compare it with the VM2
+fingerprint before trusting it:
+
+  ssh-keyscan -t ed25519 192.168.56.102 > /tmp/vm2_known_hosts
+  ssh-keygen -lf /tmp/vm2_known_hosts
+
+After confirming the fingerprints match, install the key for Jenkins:
+
+  sudo install -d -o jenkins -g jenkins -m 0700 /var/lib/jenkins/.ssh
+  sudo sh -c 'cat /tmp/vm2_known_hosts >> /var/lib/jenkins/.ssh/known_hosts'
+  sudo chown jenkins:jenkins /var/lib/jenkins/.ssh/known_hosts
+  sudo chmod 0600 /var/lib/jenkins/.ssh/known_hosts
+  rm -f /tmp/vm2_known_hosts
+
+
+4. CREATE THE JENKINS PIPELINE
+------------------------------
+
+Install/enable these Jenkins plugins:
+
+- Pipeline
+- Git
+- GitHub Branch Source (for GitHub branch discovery)
+- Credentials Binding
+- SSH Agent
+
+Create a Multibranch Pipeline job for this repository. Configure GitHub
+branch discovery and set the Script Path to:
+
+  jenkins/pipelines/Jenkinsfile.orchestrator
+
+Scan the repository branches. Build the branch containing these changes.
+The orchestrator pipeline tests all four services, builds/scans/pushes
+their images, then uses SSH to deploy them to VM2 with Helm.
+
+Set the pipeline parameters:
+
+- DOCKERHUB_IMAGE_BASE = YOUR_DOCKERHUB_USER/k8-lab
+- VM2_HOST = 192.168.56.102
+- VM2_USER = deploy
+- DEPLOY_BRANCH = srinath6132-minikube-microservices
+- DEPLOY_TO_MINIKUBE = true
+- IMAGE_PULL_SECRET_NAME = blank for public images, otherwise dockerhub-pull
+
+The pipeline appends service names to DOCKERHUB_IMAGE_BASE, producing
+repositories such as YOUR_DOCKERHUB_USER/k8-lab-user-service. Ensure these
+repositories can be pushed to by the supplied Docker Hub credentials.
+
+To create separate service Multibranch Pipeline jobs, use these Script
+Paths (one job per service):
+
+  jenkins/pipelines/Jenkinsfile.user-service
+  jenkins/pipelines/Jenkinsfile.auth-service
+  jenkins/pipelines/Jenkinsfile.product-service
+  jenkins/pipelines/Jenkinsfile.cart-service
+
+Per-service jobs default to not deploying. Enable DEPLOY_TO_MINIKUBE only
+for an intentional service release. Do not use the repository-root
+"Jenkinsfile" for the microservice jobs; it is for the legacy app.
+
+
+5. CHECK THE RELEASE ON VM2
+---------------------------
+
+After the Jenkins orchestrator build succeeds, run on VM2 as deploy:
+
+  kubectl -n shop get pods,svc
+  kubectl -n shop rollout status deployment/shop-user
+  kubectl -n shop rollout status deployment/shop-auth
+  kubectl -n shop rollout status deployment/shop-product
+  kubectl -n shop rollout status deployment/shop-cart
+  kubectl apply -f k8s/ingress/shop-ingress.yaml
+  kubectl -n shop get ingress
+
+
+6. EXPOSE THE INGRESS TO THE LAPTOP
+-----------------------------------
+
+For VirtualBox VM networking, port-forward the NGINX ingress service on
+VM2. Restrict access to the host-only subnet in the firewall:
+
+  sudo ufw allow from 192.168.56.0/24 to any port 8080 proto tcp
+  kubectl -n ingress-nginx port-forward --address 0.0.0.0 svc/ingress-nginx-controller 8080:80
+
+Leave the port-forward command running. On the Windows laptop, open
+PowerShell as Administrator and add the host mapping (replace the IP):
+
+  Add-Content -Path "$env:WINDIR\System32\drivers\etc\hosts" -Value "192.168.56.102 shop.local"
+
+Test from PowerShell:
+
+  Invoke-RestMethod 'http://shop.local:8080/api/products?q=camera'
+
+The Ingress routes /api/auth, /api/users, /api/products, and /api/cart to
+the corresponding service. If it does not respond, check that VM2's
+host-only IP is reachable, the firewall allows port 8080 from the host-only
+subnet, ingress-nginx is running, and the port-forward command is active.
+
+This is a local learning environment, not a production-ready public
+deployment. Production needs TLS, durable data stores, secret management,
+backups, monitoring/alerting, and a production-supported load balancer.
