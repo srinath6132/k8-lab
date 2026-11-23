@@ -39,3 +39,10 @@ spec:
                 name: shop-cart
                 port:
                   number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shop-product
+                port:
+                  number: 8080

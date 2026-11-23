@@ -218,7 +218,12 @@ PowerShell as Administrator and add the host mapping (replace the IP):
 
   Add-Content -Path "$env:WINDIR\System32\drivers\etc\hosts" -Value "192.168.56.102 shop.local"
 
-Test from PowerShell:
+Open the storefront from the laptop browser:
+
+  http://shop.local:8080/
+
+The storefront includes grocery search, account sign-in/registration, and
+shopping-cart controls. Test the product API directly from PowerShell:
 
   Invoke-RestMethod 'http://shop.local:8080/api/products?q=camera'
 

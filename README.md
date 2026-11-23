@@ -140,7 +140,7 @@ The separate `services/` Maven build contains four Spring Boot services:
 - **product-service** searches the sample product catalog and returns product image URLs.
 - **cart-service** keeps a per-user cart and gets product details from product-service.
 
-The sample catalog, user accounts, and carts are in memory and reset when a service restarts. Keep the chart at one replica per service until a shared persistent store is added. Product images are external URLs. This is a local learning demo, not a production storefront.
+The sample catalog, user accounts, and carts are in memory and reset when a service restarts. Keep the chart at one replica per service until a shared persistent store is added. Product images are external URLs. The product service also serves a small responsive Apna Kirana storefront at `/`, with grocery browsing, search, sign-in/registration, and cart controls. This is a local learning demo, not a production storefront.
 
 The repo is organized by service for independent image builds and Helm releases: each `services/<service>/` has its Maven module and Dockerfile, and each `helm/<service>/` has that service's chart. `jenkins/pipelines/` contains all microservice Multibranch entry points and shared pipeline implementations; `k8s/` contains the shop namespace, optional ingress/network policies, and monitoring resources. The root `Jenkinsfile` is kept only for the legacy `app/` demo.
 
@@ -250,7 +250,7 @@ kubectl -n shop port-forward svc/shop-auth 8082:8080
 kubectl -n shop port-forward svc/shop-product 8083:8080
 kubectl -n shop port-forward svc/shop-cart 8084:8080
 ```
-Use the same API examples as above. The existing `app/` demo and `helm/devops-demo` chart remain available.
+Open `http://localhost:8083/` for the storefront when running Compose. With Minikube Ingress configured, open `http://shop.local:8080/`; the product API remains available at `/api/products`. The existing `app/` demo and `helm/devops-demo` chart remain available.
 
 ### Independent service charts
 

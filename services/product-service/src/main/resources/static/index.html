@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#146b45">
+    <meta name="description" content="Everyday groceries and neighborhood favorites from Apna Kirana.">
+    <title>Apna Kirana | Your neighborhood store</title>
+    <link rel="icon" href="/shopfront.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Apna Kirana home">
+        <img src="/shopfront.svg" alt="" width="48" height="48">
+        <span><strong>Apna Kirana</strong><small>Your neighborhood store</small></span>
+      </a>
+      <form class="search" id="search-form" role="search">
+        <label class="sr-only" for="search-input">Search groceries</label>
+        <input id="search-input" type="search" placeholder="Search rice, tea, snacks..." autocomplete="off">
+        <button type="submit" aria-label="Search">Search</button>
+      </form>
+      <div class="header-actions">
+        <button class="button button-quiet" id="account-button" type="button">Sign in</button>
+        <button class="button button-cart" id="cart-button" type="button" aria-label="Open shopping cart">
+          <span aria-hidden="true">🛒</span> Cart <span class="cart-count" id="cart-count">0</span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">Good food. Good neighbors.</span>
+          <h1>Your daily essentials,<br><em>just around the corner.</em></h1>
+          <p>Fresh picks, pantry staples, and little treats from your friendly neighborhood kirana.</p>
+          <a class="button button-primary" href="#shop">Shop everyday essentials <span aria-hidden="true">↓</span></a>
+          <div class="hero-note"><span class="status-dot"></span> A small shop with a big heart</div>
+        </div>
+        <div class="hero-art">
+          <img src="/shopfront.svg" alt="Illustration of the Apna Kirana neighborhood grocery shop">
+          <span class="art-label">Namaste!<br><small>Come on in</small></span>
+        </div>
+      </section>
+
+      <section class="benefits" aria-label="Shop benefits">
+        <div><span class="benefit-icon">🥬</span><span><strong>Everyday favorites</strong><small>Picked for your home</small></span></div>
+        <div><span class="benefit-icon">🤝</span><span><strong>Local and personal</strong><small>Your neighborhood shop</small></span></div>
+        <div><span class="benefit-icon">🧺</span><span><strong>Easy shopping</strong><small>Your basket, your way</small></span></div>
+      </section>
+
+      <section class="shop-section" id="shop">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">From our shelves to your home</span>
+            <h2>Today at Apna Kirana</h2>
+          </div>
+          <span class="item-count" id="item-count" aria-live="polite"></span>
+        </div>
+        <nav class="categories" id="categories" aria-label="Product categories"></nav>
+        <div class="product-grid" id="product-grid" aria-live="polite">
+          <p class="loading">Getting the shop ready...</p>
+        </div>
+        <p class="empty-state" id="empty-state" hidden>No items found. Try another search.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand footer-brand" href="/">
+        <img src="/shopfront.svg" alt="" width="40" height="40">
+        <span><strong>Apna Kirana</strong><small>Small shop. Big heart.</small></span>
+      </a>
+      <span>Made for the neighborhood <span aria-hidden="true">♥</span></span>
+    </footer>
+
+    <dialog class="dialog" id="auth-dialog" aria-labelledby="auth-title">
+      <div class="dialog-header">
+        <div><span class="eyebrow">Welcome to the neighborhood</span><h2 id="auth-title">Sign in</h2></div>
+        <button class="icon-button" type="button" data-close="auth-dialog" aria-label="Close">×</button>
+      </div>
+      <div class="auth-switch">
+        <button type="button" class="selected" data-mode="login">Sign in</button>
+        <button type="button" data-mode="register">Create account</button>
+      </div>
+      <form id="auth-form">
+        <label id="name-field" hidden>Your name
+          <input name="name" autocomplete="name" minlength="2">
+        </label>
+        <label>Email address
+          <input name="email" type="email" autocomplete="email" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" minlength="8" required>
+        </label>
+        <p class="form-message" id="auth-message" role="status"></p>
+        <button class="button button-primary button-wide" id="auth-submit" type="submit">Sign in</button>
+      </form>
+      <p class="fine-print">Demo shop: accounts and carts are stored in memory and reset when services restart.</p>
+    </dialog>
+
+    <dialog class="dialog cart-dialog" id="cart-dialog" aria-labelledby="cart-title">
+      <div class="dialog-header">
+        <div><span class="eyebrow">Your neighborhood basket</span><h2 id="cart-title">Shopping cart</h2></div>
+        <button class="icon-button" type="button" data-close="cart-dialog" aria-label="Close">×</button>
+      </div>
+      <div id="cart-content"><p class="loading">Your basket is empty for now.</p></div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

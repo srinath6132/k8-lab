@@ -1,6 +1,7 @@
 package com.example.k8lab.products;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -19,5 +20,15 @@ class ProductControllerTest {
     @Test
     void filtersByCategoryIgnoringCase() {
         assertEquals(2, products.search("", "hOmE").size());
+    }
+
+    @Test
+    void includesKiranaEssentialsWithImages() {
+        var matches = products.search("rice", "");
+
+        assertEquals(1, matches.size());
+        assertEquals("rice-001", matches.get(0).id());
+        assertEquals("Staples", matches.get(0).category());
+        assertTrue(matches.get(0).imageUrl().startsWith("https://"));
     }
 }

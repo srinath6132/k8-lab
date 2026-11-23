@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360" role="img" aria-labelledby="title">
+  <title id="title">Apna Kirana neighborhood grocery shop</title>
+  <ellipse cx="243" cy="324" rx="190" ry="19" fill="#dce8cf"/>
+  <path d="M92 144h300v158H92z" fill="#f3d9a8"/>
+  <path d="M110 157h264v145H110z" fill="#fff9e9"/>
+  <path d="M80 130h324v35H80z" rx="8" fill="#166b46"/>
+  <path d="M80 130h324v12H80z" fill="#0c4d33"/>
+  <path d="M95 165v30h42v-30m14 0v30h42v-30m14 0v30h42v-30m14 0v30h42v-30m14 0v30h42v-30m14 0v30h42v-30" fill="#e99b45"/>
+  <path d="M95 195v-30h42v30m28 0v-30h42v30m28 0v-30h42v30m28 0v-30h42v30m28 0v-30h42v30" fill="#fff2ce"/>
+  <path d="M200 84h86v46h-86z" rx="6" fill="#f4cb69"/>
+  <path d="M210 94h66v26h-66z" fill="#fff8df"/>
+  <text x="243" y="106" text-anchor="middle" fill="#14573a" font-family="Arial,sans-serif" font-size="9" font-weight="700">APNA</text>
+  <text x="243" y="116" text-anchor="middle" fill="#14573a" font-family="Arial,sans-serif" font-size="9" font-weight="700">KIRANA</text>
+  <path d="M116 215h87v87h-87z" fill="#b9ddc0"/>
+  <path d="M128 229h63v73h-63z" fill="#eaf4e5"/>
+  <path d="M140 230v72m24-72v72m24-72v72" stroke="#abd3b0" stroke-width="4"/>
+  <path d="M226 218h128v84H226z" fill="#c98754"/>
+  <path d="M237 227h106v75H237z" fill="#75492f"/>
+  <path d="M248 240h84v62h-84z" fill="#f8e9c9"/>
+  <path d="M248 260h84m-84 20h84" stroke="#d4ae74" stroke-width="3"/>
+  <path d="M243 241h16v16h-16zm37 0h16v16h-16zm37 0h16v16h-16z" fill="#e9a23c"/>
+  <path d="M241 263h20v14h-20zm36 0h20v14h-20zm39 0h19v14h-19z" fill="#77a45d"/>
+  <path d="M127 302h239" stroke="#a9784b" stroke-width="6" stroke-linecap="round"/>
+  <path d="M61 301h34v15H61zm314 0h35v15h-35z" fill="#865d3e"/>
+  <path d="M64 296h29l-4-38H68z" fill="#d88a46"/>
+  <path d="M371 296h31l-4-38h-23z" fill="#d88a46"/>
+  <path d="M73 264h20m-19 10h21m-20 10h20" stroke="#f8d99a" stroke-width="4"/>
+  <path d="M375 264h22m-21 10h23m-22 10h22" stroke="#f8d99a" stroke-width="4"/>
+  <path d="M49 182c0-15 12-27 27-27h5v39H49zm351-27h5c15 0 27 12 27 27v12h-32z" fill="#efb55b"/>
+  <circle cx="128" cy="121" r="10" fill="#f5c564"/>
+  <path d="M121 119h14m-7-7v18" stroke="#fff8e4" stroke-width="2"/>
+  <path d="M352 108c0-10 8-18 18-18s18 8 18 18v22h-36z" fill="#82ac65"/>
+  <path d="M370 128v-23m0 9-9-8m9 13 9-8" stroke="#e9f3dc" stroke-width="3" stroke-linecap="round"/>
+</svg>
