@@ -21,24 +21,21 @@ practice profile.
 
 ## Install
 
-Run on VM2 as the same Linux account that owns Minikube:
+Run on VM2 as the same Linux account that owns Minikube. Prefer the
+repository installer, which installs the chart and then applies the
+ServiceMonitor, alert rules, and Grafana dashboard:
 
 ```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
-  --namespace monitoring --create-namespace \
-  --values observability/prometheus/values-laptop.yaml \
-  --wait --timeout 10m
-kubectl apply -f k8s/monitoring/shop-servicemonitor.yaml
-kubectl apply -f observability/prometheus/shop-alerts.yaml
-kubectl create configmap shop-overview-dashboard \
-  --namespace monitoring \
-  --from-file=shop-overview.json=observability/grafana/dashboards/shop-overview.json \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl label configmap shop-overview-dashboard \
-  --namespace monitoring grafana_dashboard=1 --overwrite
+MONITORING_VALUES_OVERRIDE="$HOME/.config/k8-lab/monitoring-values.yaml" \
+  bash scripts/observability/install-laptop-monitoring.sh
 ```
+
+For password generation and creation of the private override file, follow
+the Grafana setup in `Commands.txt`. The override is merged on top of the
+checked-in laptop values and stays outside Git. If you have not created an
+override, omit `MONITORING_VALUES_OVERRIDE=...`; the checked-in password is
+for private local practice only. Reuse the same override on upgrades so
+Helm does not reset the Grafana password.
 
 If `kubectl top` is needed, enable Minikube metrics-server separately:
 
@@ -58,20 +55,20 @@ allows ingress to the service pods from the `monitoring` namespace.
 Keep port-forwards open in separate VM2 terminals (they listen on VM2 loopback):
 
 ```bash
-kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
-kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090
+kubectl -n monitoring port-forward --address 127.0.0.1 svc/monitoring-grafana 3000:80
+kubectl -n monitoring port-forward --address 127.0.0.1 svc/monitoring-kube-prometheus-prometheus 9090:9090
 ```
 
-From the laptop, create SSH tunnels to VM2 in another terminal:
+From the laptop, open one SSH tunnel to VM2 and keep it running:
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 <vm2-user>@<vm2-host-only-ip>
-ssh -L 9090:127.0.0.1:9090 <vm2-user>@<vm2-host-only-ip>
+ssh -N -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 <vm2-user>@<vm2-host-only-ip>
 ```
 
-Browse to `http://localhost:3000` (user `admin`, password configured in the
-values file) and `http://localhost:9090`. This keeps monitoring ports off the
-host-only network. Change the example Grafana password before installing.
+Browse to `http://localhost:3000` (user `admin`, password from your local
+override file, or the checked-in values for private practice only) and
+`http://localhost:9090`. This keeps monitoring ports off the host-only
+network. Do not use the example Grafana password on a shared network.
 
 Remove the optional stack when done to free laptop resources:
 

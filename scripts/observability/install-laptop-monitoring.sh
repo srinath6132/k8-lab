@@ -10,12 +10,21 @@ if [[ ! -f "$VALUES_FILE" ]]; then
   exit 1
 fi
 
+VALUES_ARGS=(--values "$VALUES_FILE")
+if [[ -n "${MONITORING_VALUES_OVERRIDE:-}" ]]; then
+  if [[ ! -f "$MONITORING_VALUES_OVERRIDE" ]]; then
+    echo "Monitoring override values file not found: $MONITORING_VALUES_OVERRIDE" >&2
+    exit 1
+  fi
+  VALUES_ARGS+=(--values "$MONITORING_VALUES_OVERRIDE")
+fi
+
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
 helm repo update
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --create-namespace \
-  --values "$VALUES_FILE" \
+  "${VALUES_ARGS[@]}" \
   --wait \
   --timeout 10m
 

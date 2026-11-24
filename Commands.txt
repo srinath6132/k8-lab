@@ -310,41 +310,132 @@ deployment. Production needs TLS, durable data stores, secret management,
 backups, monitoring/alerting, and a production-supported load balancer.
 
 
-7. OPTIONAL LIGHTWEIGHT MONITORING AND TROUBLESHOOTING
-------------------------------------------------------
+7. OPTIONAL PROMETHEUS AND GRAFANA DEPLOYMENT
+---------------------------------------------
 
-On a 16 GB laptop, stop VM1 before enabling Prometheus/Grafana. The lab
-profile retains 12 hours of ephemeral metrics; it does not install a log
-aggregation or tracing backend.
+Prometheus collects service, JVM, and Kubernetes-object metrics and evaluates
+alert rules. Grafana displays collected metrics in dashboards. The Helm chart also
+installs Prometheus Operator, Alertmanager, and kube-state-metrics. This is
+an optional Kubernetes deployment in the separate "monitoring" namespace.
+It is not part of the four shop application deployments. Node exporter is
+disabled in the laptop profile to save resources.
 
-From the repository root on VM2:
+On this 16 GB laptop, stop VM1 first, keep at least 2 GB free in VM2 for
+monitoring, and avoid Jenkins builds while it runs. The supplied profile
+limits Prometheus retention to 12 hours and uses ephemeral storage. It does
+not install centralized logs or distributed tracing and does not send alerts
+to email/Slack/Teams.
 
-  bash scripts/observability/install-laptop-monitoring.sh
+First update the VM2 clone before creating any local configuration:
+
+  cd ~/k8-lab
+  git pull --ff-only origin srinath6132-minikube-microservices
+
+Set a private Grafana password in a local override file outside the
+repository. This generates a random 48-character hex password, prints it so
+you can save it, and keeps it out of Git:
+
+  mkdir -p "$HOME/.config/k8-lab"
+  chmod 700 "$HOME/.config/k8-lab"
+  GRAFANA_PASSWORD="$(openssl rand -hex 24)"
+  printf 'grafana:\n  adminPassword: "%s"\n' "$GRAFANA_PASSWORD" > "$HOME/.config/k8-lab/monitoring-values.yaml"
+  chmod 600 "$HOME/.config/k8-lab/monitoring-values.yaml"
+  printf 'Save this Grafana password: %s\n' "$GRAFANA_PASSWORD"
+  unset GRAFANA_PASSWORD
+
+As the account that owns Minikube, install the chart and this project's
+ServiceMonitor, alert rules, and Grafana dashboard:
+
+  MONITORING_VALUES_OVERRIDE="$HOME/.config/k8-lab/monitoring-values.yaml" bash scripts/observability/install-laptop-monitoring.sh
+
+The script uses Helm to install/update the kube-prometheus-stack release
+named "monitoring" in namespace "monitoring". It waits for the Prometheus
+Operator CRDs, then registers the shop ServiceMonitor and alert rules and
+provisions the dashboard ConfigMap. It is safe to rerun to apply updates.
+The shop services should already be deployed and ready before installing.
+
+Wait for the monitoring pods and inspect the created resources:
+
   kubectl -n monitoring get pods,svc
+  kubectl -n monitoring get servicemonitors,prometheusrules
+  kubectl -n shop get pods,svc
 
-To view Grafana from Windows without exposing it on the VM network, run:
+Wait until the Grafana, Prometheus, operator, Alertmanager, and
+kube-state-metrics pods are Ready. The ServiceMonitor scrapes the four shop
+services at `/actuator/prometheus` every 30 seconds; its `release: monitoring`
+label must match the Helm release name.
+
+To access both UIs securely from Windows, open two terminals on VM2 and
+leave these port-forwards running:
 
   kubectl -n monitoring port-forward --address 127.0.0.1 svc/monitoring-grafana 3000:80
 
-From Windows PowerShell, create an SSH tunnel to VM2:
+  kubectl -n monitoring port-forward --address 127.0.0.1 svc/monitoring-kube-prometheus-prometheus 9090:9090
 
-  ssh -L 3000:127.0.0.1:3000 deploy@192.168.56.102
+In Windows PowerShell, open one SSH tunnel to VM2 and leave it running:
 
-Then open http://localhost:3000 in the Windows browser. The username is
-admin; set a unique Grafana password in
-observability/prometheus/values-laptop.yaml before installation. This
-monitoring setup is ephemeral, retains 12 hours, and does not send external
-alerts. Stop VM1 while monitoring runs.
+  ssh -N -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 deploy@192.168.56.102
+
+Open these addresses on Windows:
+
+  Grafana:    http://localhost:3000
+  Prometheus: http://localhost:9090
+
+Sign into Grafana as `admin` using the password set in
+`$HOME/.config/k8-lab/monitoring-values.yaml`. Keep this file and password
+private. Reuse the same override path whenever you rerun the install script;
+this lets you update the chart without storing the password in the repo.
+Open Dashboards and select
+"K8 Lab Shop Services". It shows HTTP request rate, p95 latency, JVM heap,
+and container restart counts. In Prometheus, open Status > Targets and check
+that the shop service endpoints are UP. In Graph, try:
+
+  up{namespace="shop"}
+
+The alert rules cover missing service scrapes, unavailable shop replicas,
+repeated container restarts, and containers near their memory limits. View
+their state at http://localhost:9090/alerts or in Grafana's Alerting area.
+They are warning rules only; this lab does not configure external alert
+notifications.
+
+If targets are missing or DOWN, check that application pods are Ready, the
+shop ServiceMonitor exists in namespace monitoring, the `release: monitoring`
+label is present, and the shop Services expose port `http`. Useful checks:
+
+  kubectl -n monitoring get servicemonitor shop-services -o yaml
+  kubectl -n monitoring get prometheusrule shop-service-alerts -o yaml
+  kubectl -n shop get svc --show-labels
+  kubectl -n monitoring get events --sort-by=.lastTimestamp
+  kubectl -n monitoring logs deployment/monitoring-kube-prometheus-operator --tail=100
+
+To make `kubectl top` available for an additional quick resource check,
+enable Minikube's metrics-server addon (separate from Prometheus):
+
+  minikube addons enable metrics-server
+  kubectl top nodes
+  kubectl top pods -A
+
+When finished, uninstall monitoring and remove its namespace to free VM2
+resources. This deletes the Prometheus/Grafana data and dashboard:
+
+  bash scripts/observability/remove-laptop-monitoring.sh
+
+If the monitoring release is already absent, the cleanup script may report
+that Helm cannot find it; in that case remove the leftover namespace with:
+
+  kubectl delete namespace monitoring
+
+Do not delete the `shop` namespace when cleaning up monitoring.
+
+
+8. TROUBLESHOOTING AND APPLICATION CHECKS
+-----------------------------------------
 
 To check one service's actuator health endpoint from VM2, use a temporary
 port-forward in another terminal (example: auth service):
 
   kubectl -n shop port-forward svc/shop-auth 18081:8080
   curl http://127.0.0.1:18081/actuator/health
-
-When finished, free resources with:
-
-  bash scripts/observability/remove-laptop-monitoring.sh
 
 Run the diagnostic script for pod details, events, current/previous logs,
 and Helm release status:
