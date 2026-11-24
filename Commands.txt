@@ -10,10 +10,40 @@ Assumptions
 - Example VM2 IP: 192.168.56.102. Replace it with VM2's actual host-only IP.
 - The code is on branch: srinath6132-minikube-microservices.
 - Replace YOUR_DOCKERHUB_USER with your Docker Hub namespace.
-- Run the VM2 Minikube commands as the same Linux account that Jenkins uses
-  for SSH (shown below as "deploy"). Minikube profiles are user-specific.
+- This lab uses an i7 dual-core, 16 GB RAM, 256 GB SSD laptop. Keep Jenkins
+  to one executor. While both VMs run, use about 3-4 GB for VM1 and 5-6 GB
+  for VM2, leaving at least 6 GB for Windows. These vCPUs share the laptop's
+  two physical cores. Stop VM1 before enabling Prometheus/Grafana.
+- Run all VM2 Minikube/kubectl/Helm commands as the same Linux account that
+  Jenkins uses for SSH (shown below as "deploy"). Minikube profiles are
+  user-specific. Do not use sudo with kubectl, Helm, or deployment commands.
 - The repository root Jenkinsfile belongs to the legacy app. Use the
   microservice pipeline paths listed in the Jenkins section.
+- The shop services, users, and carts use in-memory data. Restarts reset it.
+
+
+0. UPDATE AN EXISTING CLONE TO THE LATEST BRANCH
+-------------------------------------------------
+
+If the repository is already cloned on VM1 or VM2, use its existing working
+directory rather than cloning over it. Check for local edits first:
+
+  cd ~/k8-lab
+  git status --short
+  git fetch origin
+  git switch srinath6132-minikube-microservices
+  git pull --ff-only origin srinath6132-minikube-microservices
+
+If `git pull` reports unstaged changes, do not discard them. Inspect and
+commit or safely save those edits, then retry. If `git switch` fails because
+the branch is missing locally, use:
+
+  git switch --track origin/srinath6132-minikube-microservices
+
+Confirm the new source is present before proceeding:
+
+  git log -1 --oneline
+  test -f k8s/resource-management/shop-quota.yaml && echo "shop quota manifest found"
 
 
 1. VM2: INSTALL MINIKUBE AND PREPARE THE DEPLOYMENT ACCOUNT
@@ -34,16 +64,20 @@ Create a dedicated deploy account and add it to the Docker group:
   sudo usermod -aG docker deploy
 
 Log out and reconnect as deploy so the new group membership takes effect.
-Start Minikube as deploy and enable the ingress addon:
+Start a login shell as deploy (or reconnect to VM2 as deploy). Start Minikube
+as that account and enable the ingress addon:
 
-  minikube start --driver=docker --cpus=4 --memory=6144
+  sudo -iu deploy
+  minikube start --driver=docker --cpus=2 --memory=6144
   minikube status
   kubectl get nodes
   minikube addons enable ingress
   kubectl -n ingress-nginx get pods,svc
 
-As deploy, clone the repository for the Kubernetes manifests, create the
-namespace, and create the JWT secret required by the auth/user services:
+For the first setup, clone the repository as deploy. If its clone already
+exists, skip the two clone commands and update it using section 0. Then
+create the namespace/guardrails and the JWT secret required by the
+auth/user/cart services:
 
   git clone --branch srinath6132-minikube-microservices https://github.com/srinath6132/k8-lab.git
   cd k8-lab
@@ -54,6 +88,13 @@ namespace, and create the JWT secret required by the auth/user services:
 
 Keep the generated JWT secret out of source control. The Jenkins deploy
 script expects the Secret name "shop-jwt" and data key "jwt-secret".
+Create the JWT secret only once; if it already exists, keep the same secret
+so previously issued demo tokens remain valid:
+
+  kubectl -n shop get secret shop-jwt
+
+If it does not exist, run the `kubectl create secret` command above. Do not
+delete/recreate the namespace on routine deployments.
 
 If the Kubernetes images are private, create a Docker Hub image pull secret
 in the shop namespace. Use a Docker Hub access token, not your password:
@@ -94,6 +135,9 @@ Install Jenkins from its Debian repository:
 Docker group membership grants root-equivalent privileges. Use this only
 on a dedicated lab VM. If you also added your login account to the group,
 log out and back in.
+
+In Manage Jenkins > Nodes > Built-In Node > Configure, set the number of
+executors to 1 to limit CPU and memory pressure.
 
 Check VM1 can reach VM2 and SSH as deploy:
 
@@ -161,7 +205,12 @@ branch discovery and set the Script Path to:
 
   jenkins/pipelines/Jenkinsfile.orchestrator
 
-Scan the repository branches. Build the branch containing these changes.
+Scan the repository branches. Build
+`srinath6132-minikube-microservices`. The orchestrator's default
+`DEPLOY_BRANCH` is `main`; set it to
+`srinath6132-minikube-microservices` for this lab branch, or Jenkins will
+successfully build but skip deployment. Deployment also requires
+`DEPLOY_TO_MINIKUBE=true`.
 The orchestrator pipeline tests all four services, builds/scans/pushes
 their images, then uses SSH to deploy them to VM2 with Helm.
 
@@ -196,21 +245,40 @@ for an intentional service release. Do not use the repository-root
 
 After the Jenkins orchestrator build succeeds, run on VM2 as deploy:
 
+  kubectl -n shop get deployments -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image'
   kubectl -n shop get pods,svc
-  kubectl -n shop rollout status deployment/shop-user
-  kubectl -n shop rollout status deployment/shop-auth
-  kubectl -n shop rollout status deployment/shop-product
-  kubectl -n shop rollout status deployment/shop-cart
+  kubectl -n shop rollout status deployment/shop-user --timeout=10m
+  kubectl -n shop rollout status deployment/shop-auth --timeout=10m
+  kubectl -n shop rollout status deployment/shop-product --timeout=10m
+  kubectl -n shop rollout status deployment/shop-cart --timeout=10m
   kubectl apply -f k8s/ingress/shop-ingress.yaml
   kubectl -n shop get ingress
+
+If a deployment fails, check pod status/events/logs before rerunning Jenkins:
+
+  kubectl -n shop get pods -o wide
+  kubectl -n shop get events --sort-by=.lastTimestamp
+  kubectl -n shop describe deployment shop-auth
+  kubectl -n shop logs deployment/shop-auth --all-containers --tail=150
+  bash scripts/troubleshooting/diagnose.sh shop
+
+To roll back one service to its previous Helm revision, first inspect history:
+
+  helm -n shop history shop-auth-service
+  helm -n shop rollback shop-auth-service
+
+The Helm release names are `shop-user-service`, `shop-auth-service`,
+`shop-product-service`, and `shop-cart-service`.
 
 
 6. EXPOSE THE INGRESS TO THE LAPTOP
 -----------------------------------
 
-For VirtualBox VM networking, port-forward the NGINX ingress service on
-VM2. Restrict access to the host-only subnet in the firewall:
+For VirtualBox VM networking, first confirm the ingress controller is ready.
+Port-forward the NGINX ingress service on VM2 and restrict access to the
+host-only subnet in the firewall:
 
+  kubectl -n ingress-nginx get pods,svc
   sudo ufw allow from 192.168.56.0/24 to any port 8080 proto tcp
   kubectl -n ingress-nginx port-forward --address 0.0.0.0 svc/ingress-nginx-controller 8080:80
 
@@ -222,6 +290,10 @@ PowerShell as Administrator and add the host mapping (replace the IP):
 Open the storefront from the laptop browser:
 
   http://shop.local:8080/
+
+On Windows PowerShell, confirm the host-only address and port are reachable:
+
+  Test-NetConnection 192.168.56.102 -Port 8080
 
 The storefront includes grocery search, account sign-in/registration, and
 shopping-cart controls. Test the product API directly from PowerShell:
@@ -250,12 +322,26 @@ From the repository root on VM2:
   bash scripts/observability/install-laptop-monitoring.sh
   kubectl -n monitoring get pods,svc
 
-Port-forward Grafana in a VM2 terminal and keep it open:
+To view Grafana from Windows without exposing it on the VM network, run:
 
-  kubectl -n monitoring port-forward 3000:80 svc/monitoring-grafana
+  kubectl -n monitoring port-forward --address 127.0.0.1 svc/monitoring-grafana 3000:80
 
-Open http://localhost:3000. The username is admin; change the example
-password in observability/prometheus/values-laptop.yaml before installation.
+From Windows PowerShell, create an SSH tunnel to VM2:
+
+  ssh -L 3000:127.0.0.1:3000 deploy@192.168.56.102
+
+Then open http://localhost:3000 in the Windows browser. The username is
+admin; set a unique Grafana password in
+observability/prometheus/values-laptop.yaml before installation. This
+monitoring setup is ephemeral, retains 12 hours, and does not send external
+alerts. Stop VM1 while monitoring runs.
+
+To check one service's actuator health endpoint from VM2, use a temporary
+port-forward in another terminal (example: auth service):
+
+  kubectl -n shop port-forward svc/shop-auth 18081:8080
+  curl http://127.0.0.1:18081/actuator/health
+
 When finished, free resources with:
 
   bash scripts/observability/remove-laptop-monitoring.sh
@@ -269,6 +355,9 @@ Run a non-destructive storefront and grocery-catalog smoke test:
 
   bash scripts/smoke-test.sh http://127.0.0.1:8080
 
+The smoke test should run on VM2 while the Ingress port-forward above is
+active. Its `Host: shop.local` header selects the configured Ingress route.
+
 First-response procedures are documented in runbooks/:
 
   runbooks/pod-startup-and-probes.md
@@ -276,3 +365,18 @@ First-response procedures are documented in runbooks/:
   runbooks/image-pull-failure.md
   runbooks/ingress-and-service-unavailable.md
   runbooks/laptop-operations.md
+  runbooks/jenkins-build-and-status.md
+
+To stop the app and recover laptop resources, remove the optional monitoring
+stack if installed, then scale down the four services:
+
+  bash scripts/observability/remove-laptop-monitoring.sh
+  kubectl -n shop scale deployment --all --replicas=0
+
+To bring the services back, rerun the Jenkins orchestrator deployment or
+scale them up:
+
+  kubectl -n shop scale deployment --all --replicas=1
+
+The deployment uses ephemeral/in-memory application data, so restarting
+services loses demo users and cart contents.

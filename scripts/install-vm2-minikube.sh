@@ -20,5 +20,5 @@ curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 |
 
 echo
 echo "Log out/in, then run:"
-echo "minikube start --driver=docker --cpus=4 --memory=6144"
+echo "minikube start --driver=docker --cpus=2 --memory=6144"
 echo "kubectl get nodes"
