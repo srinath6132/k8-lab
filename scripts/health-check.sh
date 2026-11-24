@@ -10,4 +10,4 @@ for deployment in "${deployments[@]}"; do
   kubectl -n "$NAMESPACE" rollout status "deployment/${deployment}" --timeout="$TIMEOUT"
 done
 
-kubectl -n "$NAMESPACE" get deployments,pods,services
+kubectl -n "$NAMESPACE" get deployments,pods,services,endpoints

@@ -1,6 +1,7 @@
 package com.example.k8lab.cart;
 
 import com.example.k8lab.common.BearerTokenFilter;
+import com.example.k8lab.common.CorrelationIdClientInterceptor;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,7 +31,10 @@ public class CartController {
     public CartController(
             RestClient.Builder builder,
             @Value("${app.product-service.url}") String productServiceUrl) {
-        this.products = builder.baseUrl(productServiceUrl).build();
+        this.products = builder
+                .requestInterceptor(new CorrelationIdClientInterceptor())
+                .baseUrl(productServiceUrl)
+                .build();
     }
 
     @GetMapping

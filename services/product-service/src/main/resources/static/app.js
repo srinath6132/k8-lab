@@ -32,6 +32,9 @@ function authHeaders() {
 
 async function request(path, options = {}) {
   const headers = { ...authHeaders(), ...options.headers };
+  if (!headers["X-Correlation-ID"]) {
+    headers["X-Correlation-ID"] = `ui-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
   if (options.body) headers["Content-Type"] = "application/json";
   const response = await fetch(`${API}${path}`, { ...options, headers });
   if (!response.ok) {

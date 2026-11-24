@@ -1,6 +1,7 @@
 package com.example.k8lab.auth;
 
 import com.example.k8lab.common.TokenService;
+import com.example.k8lab.common.CorrelationIdClientInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +23,10 @@ public class AuthController {
             RestClient.Builder builder,
             TokenService tokens,
             @Value("${app.user-service.url}") String userServiceUrl) {
-        this.users = builder.baseUrl(userServiceUrl).build();
+        this.users = builder
+                .requestInterceptor(new CorrelationIdClientInterceptor())
+                .baseUrl(userServiceUrl)
+                .build();
         this.tokens = tokens;
     }
 

@@ -48,6 +48,7 @@ namespace, and create the JWT secret required by the auth/user services:
   git clone --branch srinath6132-minikube-microservices https://github.com/srinath6132/k8-lab.git
   cd k8-lab
   kubectl apply -f k8s/namespaces/shop.yaml
+  kubectl apply -f k8s/resource-management/shop-quota.yaml
   kubectl -n shop create secret generic shop-jwt --from-literal=jwt-secret="$(openssl rand -base64 48)"
   kubectl -n shop get secret shop-jwt
 
@@ -235,3 +236,43 @@ subnet, ingress-nginx is running, and the port-forward command is active.
 This is a local learning environment, not a production-ready public
 deployment. Production needs TLS, durable data stores, secret management,
 backups, monitoring/alerting, and a production-supported load balancer.
+
+
+7. OPTIONAL LIGHTWEIGHT MONITORING AND TROUBLESHOOTING
+------------------------------------------------------
+
+On a 16 GB laptop, stop VM1 before enabling Prometheus/Grafana. The lab
+profile retains 12 hours of ephemeral metrics; it does not install a log
+aggregation or tracing backend.
+
+From the repository root on VM2:
+
+  bash scripts/observability/install-laptop-monitoring.sh
+  kubectl -n monitoring get pods,svc
+
+Port-forward Grafana in a VM2 terminal and keep it open:
+
+  kubectl -n monitoring port-forward 3000:80 svc/monitoring-grafana
+
+Open http://localhost:3000. The username is admin; change the example
+password in observability/prometheus/values-laptop.yaml before installation.
+When finished, free resources with:
+
+  bash scripts/observability/remove-laptop-monitoring.sh
+
+Run the diagnostic script for pod details, events, current/previous logs,
+and Helm release status:
+
+  bash scripts/troubleshooting/diagnose.sh shop
+
+Run a non-destructive storefront and grocery-catalog smoke test:
+
+  bash scripts/smoke-test.sh http://127.0.0.1:8080
+
+First-response procedures are documented in runbooks/:
+
+  runbooks/pod-startup-and-probes.md
+  runbooks/helm-deployment-failure.md
+  runbooks/image-pull-failure.md
+  runbooks/ingress-and-service-unavailable.md
+  runbooks/laptop-operations.md

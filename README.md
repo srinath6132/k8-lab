@@ -152,11 +152,20 @@ k8-lab/
 │   └── shared/               # Jenkins credentials and operating conventions
 ├── helm/                     # One chart per service; combined chart retained for local use
 ├── k8s/
-│   ├── namespaces/
-│   ├── ingress/
-│   ├── network-policies/
-│   └── monitoring/
-├── scripts/                  # Change detection, image build, deploy, health checks
+│   ├── namespaces/            # Namespace and Pod Security Admission labels
+│   ├── ingress/               # NGINX routes for storefront and APIs
+│   ├── network-policies/      # Service-to-service traffic restrictions
+│   ├── resource-management/   # Laptop namespace quota and container defaults
+│   └── monitoring/            # ServiceMonitor and operator integration notes
+├── observability/
+│   ├── prometheus/            # Laptop resource profile and alert rules
+│   └── grafana/dashboards/    # Shop metrics dashboard
+├── runbooks/                  # Startup, Helm, image, ingress, laptop operations
+├── security/                  # Lab security baseline and production gaps
+├── environment/dev/           # 16 GB laptop practice profile
+├── scripts/
+│   ├── observability/         # Optional monitoring install/remove
+│   └── troubleshooting/       # Cluster diagnostic and smoke-test scripts
 ├── sonarqube/                # Optional scanner configuration
 ├── app/                      # Existing single-app demo
 ├── compose.yaml
@@ -379,6 +388,80 @@ Invoke-RestMethod -Uri "${base}:8084/api/cart" -Headers $headers
 If Windows cannot connect, confirm the port-forward processes are still running, that the address belongs to VM2's host-only adapter, and that VirtualBox host-only networking and the VM2 firewall allow the traffic. Do not expose the Kubernetes API or Jenkins to the public internet.
 
 This is a corporate-style learning workflow, not production HA: Minikube is single-node and the demo services keep application data in memory. Use persistent databases, TLS/Ingress, managed secrets, backups, and a production Kubernetes cluster before handling real users or orders.
+
+## 10. Laptop-sized corporate operations profile
+
+The repo includes practical operations patterns without enabling every
+resource-heavy component by default:
+
+- Metrics and JVM/HTTP dashboard: optional Prometheus + Grafana profile in
+  `observability/prometheus/values-laptop.yaml`, with service discovery,
+  alert rules, and a dashboard.
+- Logs/troubleshooting: Kubernetes current/previous pod logs, events, Helm
+  history, correlation IDs in all four services and log patterns, and
+  shell runbooks in `runbooks/`.
+- Guardrails: namespace Pod Security Admission labels and a shop ResourceQuota
+  / LimitRange in `k8s/`.
+- CI/CD: existing per-service and orchestrator Jenkins pipelines, image scan,
+  and immutable build tags.
+- Request diagnostics: the storefront sends an `X-Correlation-ID`; services
+  validate/echo it, add it to log context, and propagate it across auth/cart
+  service calls.
+
+On the dual-core i7 / 16 GB laptop, allocate about 3-4 GiB and 2 vCPU to VM1,
+5-6 GiB and 2 vCPU to VM2, leave at least 6 GiB for Windows, and keep Jenkins
+to one executor. Virtual CPU allocations share the laptop's two physical
+cores, so Maven/Docker builds can be slow. Stop VM1 while using optional
+monitoring. The Prometheus/Grafana profile retains only 12 hours and stores
+data ephemerally; it does not include Loki, Elasticsearch, tracing backends,
+or external alert delivery. See `runbooks/laptop-operations.md` before
+enabling it.
+
+Apply namespace guardrails once on VM2:
+
+```bash
+kubectl apply -f k8s/namespaces/shop.yaml
+kubectl apply -f k8s/resource-management/shop-quota.yaml
+```
+
+For diagnostics and a non-destructive storefront/catalog smoke test (run from
+VM2 after the Ingress port-forward is active):
+
+```bash
+bash scripts/troubleshooting/diagnose.sh shop
+bash scripts/smoke-test.sh http://127.0.0.1:8080
+```
+
+Install optional monitoring on VM2, preferably with VM1 stopped:
+
+```bash
+bash scripts/observability/install-laptop-monitoring.sh
+kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+```
+
+On your laptop, open an SSH tunnel to VM2, then browse Grafana at
+`http://localhost:3000`:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 <vm2-user>@<vm2-host-only-ip>
+```
+
+To remove the optional stack and free resources:
+
+```bash
+bash scripts/observability/remove-laptop-monitoring.sh
+```
+
+Read `runbooks/pod-startup-and-probes.md`,
+`runbooks/image-pull-failure.md`,
+`runbooks/ingress-and-service-unavailable.md`, and
+`runbooks/jenkins-build-and-status.md` for first-response steps. The
+namespace limits and monitoring profile are local practice guardrails; adjust
+them for a real cluster's workload and policies. Deliberately not enabled on
+this laptop are HA replicas, HPA/PDB, persistent databases, TLS certificate
+automation, centralized log/trace backends, and external alert delivery.
+Implement these when moving to a larger shared cluster with durable storage
+and an operations team.
 
 ## Important notes
 - This is a learning lab, not a production HA architecture.

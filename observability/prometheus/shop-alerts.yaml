@@ -1,0 +1,45 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shop-service-alerts
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: shop.availability
+      rules:
+        - alert: ShopServiceScrapeMissing
+          expr: up{namespace="shop"} == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A shop service is not being scraped"
+            description: "Prometheus cannot scrape {{ $labels.service }} in namespace shop for more than 2 minutes."
+        - alert: ShopDeploymentUnavailable
+          expr: kube_deployment_spec_replicas{namespace="shop"} > kube_deployment_status_replicas_available{namespace="shop"}
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A shop deployment has unavailable replicas"
+            description: "Deployment {{ $labels.deployment }} has fewer available replicas than desired."
+        - alert: ShopContainerRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="shop"}[10m]) > 2
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A shop container is restarting repeatedly"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} restarted more than twice in 10 minutes."
+    - name: shop.resources
+      rules:
+        - alert: ShopContainerMemoryNearLimit
+          expr: container_memory_working_set_bytes{namespace="shop",container!="",image!=""} / on(namespace,pod,container) kube_pod_container_resource_limits{namespace="shop",resource="memory"} > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A shop container is near its memory limit"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} has used more than 90% of its memory limit for 5 minutes."
